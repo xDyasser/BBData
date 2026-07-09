@@ -271,6 +271,7 @@
   function initEntry() {
     fillSelect($("#e-month"), monthKeys(), k=>k, keyLabel, true);
     const cs=$("#e-component"); cs.innerHTML=""; store.components.forEach(c=>cs.add(new Option(c,c)));
+    if(!$("#e-add-year").value) $("#e-add-year").value=new Date().getFullYear();
     renderEntry();
   }
   function renderEntry() {
@@ -278,7 +279,7 @@
     const meta=SECTIONS[section];
     $("#e-wrap-comp").style.display = meta.byComponent?"":"none";
     const table=$("#entry-table");
-    if (!key){ table.innerHTML="<caption class='muted'>No month selected — add one from Manage.</caption>"; return; }
+    if (!key){ table.innerHTML="<caption class='muted'>No month selected — add one above to start entering data.</caption>"; return; }
     if (!store.data[key]) store.data[key]=emptyMonth();
     const M=store.data[key];
     const nDays=daysInMonth(key);
@@ -287,6 +288,7 @@
     let block, comp=null;
     if (section==="issue"){ comp=$("#e-component").value; M.issue[comp]=M.issue[comp]||{}; block=M.issue[comp]; }
     else block=M[section];
+    $("#e-hint").classList.remove("err-hint");
     $("#e-hint").textContent = `${keyLabel(key)} · ${meta.label}${comp?" · "+comp:""} · enter daily counts, totals auto-calculate`;
 
     // header
@@ -425,13 +427,22 @@
     });
     if(!$("#add-year").value) $("#add-year").value=new Date().getFullYear();
   }
-  function addMonth() {
-    const m=+$("#add-month").value, y=+$("#add-year").value;
-    if(!y||y<2000){ msg("Enter a valid year.","err"); return; }
+  // returns the new month key, or null on failure. reporter(text, cls) shows feedback.
+  function createMonth(m,y,reporter){
+    if(!y||y<2000){ reporter&&reporter("Enter a valid year.","err"); return null; }
     const key=`${y}-${String(m).padStart(2,"0")}`;
-    if(store.data[key]){ msg(`${keyLabel(key)} already exists.`,"err"); return; }
+    if(store.data[key]){ reporter&&reporter(`${keyLabel(key)} already exists.`,"err"); return null; }
     store.data[key]=emptyMonth(); save(); refreshAll();
-    msg(`Added ${keyLabel(key)}. Switch to Data Entry to fill it in.`,"ok");
+    return key;
+  }
+  function addMonth() {
+    const key=createMonth(+$("#add-month").value, +$("#add-year").value, msg);
+    if(key) msg(`Added ${keyLabel(key)}. Switch to Data Entry to fill it in.`,"ok");
+  }
+  function addMonthFromEntry() {
+    const key=createMonth(+$("#e-add-month").value, +$("#e-add-year").value,
+      (t,cls)=>{ const el=$("#e-hint"); el.textContent=t; el.classList.toggle("err-hint",cls==="err"); });
+    if(key){ $("#e-month").value=key; renderEntry(); }
   }
   function msg(t,cls){ const el=$("#io-msg"); el.textContent=t; el.className="io-msg "+(cls||""); }
 
@@ -860,6 +871,7 @@ table.rt td.tot,table.rt tfoot td{font-weight:700;background:#faf9f7}
     $("#f-month").addEventListener("change",renderDashboard);
     ["e-month","e-section","e-component"].forEach(id=>$("#"+id).addEventListener("change",renderEntry));
     $("#btn-add-month").onclick=addMonth;
+    $("#e-btn-add-month").onclick=addMonthFromEntry;
     $("#btn-export-json").onclick=exportJSON;
     $("#btn-export-xlsx").onclick=()=>exportStyledXLSX().catch(e=>{console.error(e);msg("Styled export failed: "+e.message,"err");});
     $("#btn-export-forms").onclick=exportXLSX;

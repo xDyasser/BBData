@@ -57,6 +57,10 @@ select,input[type=number]{
   border-radius:8px;background:var(--surface-2);color:var(--text-primary);min-width:150px;
 }
 .entry-hint{font-size:12px;color:var(--text-muted);align-self:center;}
+.entry-hint.err-hint{color:var(--danger,#e5484d);font-weight:600;}
+.entry-add{display:flex;gap:.4rem;align-items:center;}
+.entry-add #e-add-year{width:90px;min-width:0;}
+.entry-add #e-add-month{min-width:120px;}
 
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:.8rem;}
 .kpi{background:var(--surface-1);border:1px solid var(--border);border-radius:var(--radius);padding:.9rem 1rem;box-shadow:var(--shadow);}
