@@ -364,7 +364,101 @@
   function today(){ return new Date().toISOString().slice(0,10); }
   function download(blob,name){ const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
 
-  // Excel export: analysis sheets first, then one form sheet per month
+  /* ---------- styled Excel export (inject live values into a pre-styled,
+     chart-bearing template via JSZip XML surgery — preserves formatting) ---------- */
+  function b64ToBytes(b64){ const bin=atob(b64); const a=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) a[i]=bin.charCodeAt(i); return a; }
+  function xmlEsc(s){ return String(s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;"); }
+  const colL=(i)=>String.fromCharCode(66+i); // 0->B, 1->C, ...
+  function putCell(xml, ref, inner, type){ // inner=null blanks the cell (keeps style)
+    const re=new RegExp('<c r="'+ref+'"[^>]*?(?:/>|>[\\s\\S]*?</c>)');
+    return xml.replace(re,(m)=>{
+      const sm=m.match(/ s="(\d+)"/); const sAttr=sm?(' s="'+sm[1]+'"'):"";
+      if(inner==null) return '<c r="'+ref+'"'+sAttr+' t="n"/>';
+      if(type==="inlineStr") return '<c r="'+ref+'"'+sAttr+' t="inlineStr"><is><t xml:space="preserve">'+xmlEsc(inner)+'</t></is></c>';
+      return '<c r="'+ref+'"'+sAttr+' t="n"><v>'+inner+'</v></c>';
+    });
+  }
+  const setNum=(xml,ref,v)=>putCell(xml,ref, v==null?null:v, "n");
+  const setTxt=(xml,ref,v)=>putCell(xml,ref, v==null?null:v, "inlineStr");
+
+  async function exportStyledXLSX(){
+    const keys=monthKeys();
+    if(!keys.length){ msg("No data to export.","err"); return; }
+    if(!window.JSZip||!window.BB_TEMPLATE_B64){ msg("Styled template unavailable; using plain export.","err"); return exportXLSX(); }
+    msg("Building styled workbook…","");
+    const zip=await JSZip.loadAsync(b64ToBytes(window.BB_TEMPLATE_B64));
+    const meta=window.BB_TEMPLATE_META, comps=store.components;
+
+    // map sheet name -> worksheet part path
+    const wbxml=await zip.file("xl/workbook.xml").async("string");
+    const relsxml=await zip.file("xl/_rels/workbook.xml.rels").async("string");
+    const rid={};
+    (relsxml.match(/<Relationship\b[^>]*>/g)||[]).forEach(s=>{
+      const id=(s.match(/Id="([^"]+)"/)||[])[1], tg=(s.match(/Target="([^"]+)"/)||[])[1];
+      if(id&&tg) rid[id]=tg.replace(/^\//,"");
+    });
+    const path={};
+    [...wbxml.matchAll(/<sheet name="([^"]+)"[^>]*r:id="(rId\d+)"/g)].forEach(m=>{ path[m[1]]=rid[m[2]]; });
+
+    // --- Summary ---
+    let s=await zip.file(path["Summary"]).async("string");
+    const st=sectionTotalsAll(), ct=componentTotals();
+    s=setTxt(s,"B2", keyLabel(keys[0])+" – "+keyLabel(keys[keys.length-1]));
+    s=setNum(s,"B3", keys.length);
+    s=setTxt(s,"B4", new Date().toLocaleString());
+    ["B7","B8","B9","B10","B11"].forEach((r,i)=> s=setNum(s,r, st[i].n));
+    comps.forEach((c,i)=> s=setNum(s,"B"+(14+i), ct.find(x=>x.c===c).n));
+    zip.file(path["Summary"], s);
+
+    // --- By Year ---
+    let y=await zip.file(path["By Year"]).async("string");
+    const ym=yearlyMatrix(), ys=ym.ys;
+    for(let i=0;i<meta.yearsReserved;i++){ const r=3+i;
+      if(i<ys.length){ y=setTxt(y,"A"+r, ys[i]); comps.forEach((c,j)=> y=setNum(y,colL(j)+r, ym.cell(ys[i],c))); }
+      else { y=setTxt(y,"A"+r,null); ["B","C","D","E","F"].forEach(col=> y=setNum(y,col+r,null)); }
+    }
+    zip.file(path["By Year"], y);
+
+    // --- By Ward (11 fixed rows; labels & F/G formulas already in template) ---
+    let w=await zip.file(path["By Ward"]).async("string");
+    const wardComp=(wd,c)=>keys.reduce((a,k)=>a+issueMonthTotal(k,c,wd),0);
+    store.wards.forEach((wd,i)=>{ const r=3+i; comps.forEach((c,j)=> w=setNum(w,colL(j)+r, wardComp(wd,c))); });
+    zip.file(path["By Ward"], w);
+
+    // --- By Month ---
+    let mo=await zip.file(path["By Month"]).async("string");
+    for(let i=0;i<meta.monthsReserved;i++){ const r=3+i;
+      if(i<keys.length){ const k=keys[i];
+        mo=setTxt(mo,"A"+r, keyLabel(k));
+        comps.forEach((c,j)=> mo=setNum(mo,colL(j)+r, issueMonthTotal(k,c,"__all")));
+        mo=setNum(mo,"F"+r, sectionMonthTotal(k,"received"));
+        mo=setNum(mo,"G"+r, sectionMonthTotal(k,"returned_ward")+sectionMonthTotal(k,"returned_ash"));
+      } else { mo=setTxt(mo,"A"+r,null); ["B","C","D","E","F","G","H"].forEach(col=> mo=setNum(mo,col+r,null)); }
+    }
+    zip.file(path["By Month"], mo);
+
+    // --- patch chart data ranges to the live year/month extents ---
+    const yEnd=2+ys.length, mEnd=2+keys.length;
+    const chartFiles=Object.keys(zip.files).filter(n=>/^xl\/charts\/chart\d+\.xml$/.test(n));
+    for(const cf of chartFiles){
+      let x=await zip.file(cf).async("string");
+      x=x.replace(/('By Year'!\$[A-F]\$3:\$[A-F]\$)\d+/g,(m,p)=>p+yEnd);
+      x=x.replace(/('By Month'!\$[A-H]\$3:\$[A-H]\$)\d+/g,(m,p)=>p+mEnd);
+      zip.file(cf,x);
+    }
+    // drop calcChain so Excel recalculates all formulas on open
+    if(zip.file("xl/calcChain.xml")){
+      zip.remove("xl/calcChain.xml");
+      const ct2=await zip.file("[Content_Types].xml").async("string");
+      zip.file("[Content_Types].xml", ct2.replace(/<Override[^>]*calcChain\.xml"[^>]*\/>/,""));
+    }
+
+    const blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    download(blob, `blood-bank-analysis-${today()}.xlsx`);
+    msg("Styled Excel exported — Summary, By Year, By Ward, By Month with native charts.","ok");
+  }
+
+  // Plain Excel export (SheetJS): analysis sheets + one form sheet per month
   function exportXLSX() {
     const keys=monthKeys();
     if(!keys.length){ msg("No data to export.","err"); return; }
@@ -679,7 +773,8 @@ table.rt td.tot,table.rt tfoot td{font-weight:700;background:#faf9f7}
     ["e-month","e-section","e-component"].forEach(id=>$("#"+id).addEventListener("change",renderEntry));
     $("#btn-add-month").onclick=addMonth;
     $("#btn-export-json").onclick=exportJSON;
-    $("#btn-export-xlsx").onclick=exportXLSX;
+    $("#btn-export-xlsx").onclick=()=>exportStyledXLSX().catch(e=>{console.error(e);msg("Styled export failed: "+e.message,"err");});
+    $("#btn-export-forms").onclick=exportXLSX;
     $("#btn-report").onclick=buildReport;
     $("#imp-json").onchange=e=>e.target.files[0]&&importJSON(e.target.files[0]);
     $("#imp-xlsx").onchange=e=>e.target.files[0]&&importXLSX(e.target.files[0]);

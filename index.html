@@ -118,7 +118,8 @@
       <p class="muted">Back up or move your data. JSON keeps everything; Excel is a per-month report.</p>
       <div class="row">
         <button id="btn-report" class="primary">📊 Export report (graphs + analysis)</button>
-        <button id="btn-export-xlsx">⬇ Export Excel (analysis + forms)</button>
+        <button id="btn-export-xlsx">⬇ Export Excel (styled + charts)</button>
+        <button id="btn-export-forms">⬇ Export Excel (monthly forms)</button>
         <button id="btn-export-json">⬇ Export JSON (full backup)</button>
         <label class="filebtn">⬆ Import JSON<input type="file" id="imp-json" accept=".json" hidden></label>
         <label class="filebtn">⬆ Import Excel workbook<input type="file" id="imp-xlsx" accept=".xlsx,.xls" hidden></label>
@@ -147,7 +148,9 @@
 
 <script src="vendor/chart.umd.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>
+<script src="vendor/jszip.min.js"></script>
 <script src="data-seed.js"></script>
+<script src="template-embed.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
