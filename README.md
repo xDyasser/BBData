@@ -7,10 +7,16 @@ per day, per ward/floor, and per component**. Built from the original
 
 ## Running it
 
-No server or build step needed. Just open **`index.html`** in a browser
-(double-click it, or host the folder on any static web host / shared drive).
+No server or build step needed. Two equivalent ways to run:
 
-All libraries are bundled locally in `vendor/`, so it works fully offline.
+- **`BloodBankStatistics.html`** — a **single self-contained file** with
+  everything (styles, code, data, and libraries) inlined. Just double-click it,
+  or email/copy it anywhere — nothing else required.
+- **`index.html`** — the same app split into separate files (`styles.css`,
+  `app.js`, `data-seed.js`, `vendor/`), which is easier to edit.
+
+Both work fully offline. If you edit the split files, regenerate the single
+file with `python3 tools/build_single.py`.
 
 ## Data & storage
 
