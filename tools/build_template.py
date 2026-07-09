@@ -81,6 +81,22 @@ def data_cell(c, num=True, total=False, band=False):
     if total: c.font=Font(bold=True); c.fill=PatternFill("solid", fgColor=TOTALF)
     elif band: c.fill=PatternFill("solid", fgColor=BAND)
 
+def finish_chart(ch, xt=None, yt=None):
+    # keep the title above the plot (not overlaying the bars) and show axis titles
+    if ch.title is not None:
+        try: ch.title.overlay = False
+        except Exception: pass
+    if hasattr(ch, "x_axis"):
+        ch.x_axis.delete = False
+        ch.y_axis.delete = False
+        if xt is not None: ch.x_axis.title = xt
+        if yt is not None: ch.y_axis.title = yt
+        try:
+            ch.x_axis.title.overlay = False
+            ch.y_axis.title.overlay = False
+        except Exception: pass
+    ch.legend.position = "b"
+
 # ================= Summary =================
 ws = wb.active; ws.title="Summary"
 title(ws, "Blood Bank Statistics — Summary", 4)
@@ -122,6 +138,7 @@ from openpyxl.drawing.fill import PatternFillProperties, ColorChoice
 ser=pie.series[0]
 for i,c in enumerate(COMPS):
     dp=DataPoint(idx=i); dp.graphicalProperties.solidFill=COMPFILL[c]; ser.data_points.append(dp)
+finish_chart(pie)
 ws.add_chart(pie,"E6")
 ws.freeze_panes="A2"
 
@@ -148,10 +165,11 @@ wy.column_dimensions["A"].width=10
 for j in range(len(COMPS)+1): wy.column_dimensions[get_column_letter(2+j)].width=12
 wy.freeze_panes="B3"
 bar=BarChart(); bar.type="col"; bar.grouping="clustered"; bar.title="Yearly issuance by component"
-bar.height=8; bar.width=18; bar.y_axis.majorGridlines=None
+bar.height=9; bar.width=18
 bar.add_data(Reference(wy,min_col=2,max_col=5,min_row=2,max_row=2+len(YEARS)), titles_from_data=True)
 bar.set_categories(Reference(wy,min_col=1,min_row=3,max_row=2+len(YEARS)))
 for i,c in enumerate(COMPS): bar.series[i].graphicalProperties.solidFill=COMPFILL[c]
+finish_chart(bar, xt="Year", yt="Units issued")
 wy.add_chart(bar,"H2")
 
 # ================= By Ward =================
@@ -176,10 +194,11 @@ ww.column_dimensions["A"].width=22
 for j in range(1,7): ww.column_dimensions[get_column_letter(1+j)].width=11
 ww.freeze_panes="B3"
 wbar=BarChart(); wbar.type="bar"; wbar.grouping="stacked"; wbar.overlap=100
-wbar.title="Issued by ward"; wbar.height=10; wbar.width=18
+wbar.title="Issued by ward"; wbar.height=11; wbar.width=18
 wbar.add_data(Reference(ww,min_col=2,max_col=5,min_row=2,max_row=2+len(WARDS)), titles_from_data=True)
 wbar.set_categories(Reference(ww,min_col=1,min_row=3,max_row=2+len(WARDS)))
 for i,c in enumerate(COMPS): wbar.series[i].graphicalProperties.solidFill=COMPFILL[c]
+finish_chart(wbar, xt="Ward / Floor", yt="Units issued")
 ww.add_chart(wbar,"I2")
 
 # ================= By Month =================
@@ -200,13 +219,14 @@ for i in range(MONTHS_RESERVED):
 wm.column_dimensions["A"].width=12
 for j in range(1,8): wm.column_dimensions[get_column_letter(1+j)].width=12
 wm.freeze_panes="B3"
-line=LineChart(); line.title="Monthly issuance by component"; line.height=8; line.width=20; line.smooth=False
+line=LineChart(); line.title="Monthly issuance by component"; line.height=9; line.width=20; line.smooth=False
 line.add_data(Reference(wm,min_col=2,max_col=5,min_row=2,max_row=2+len(KEYS)), titles_from_data=True)
 line.set_categories(Reference(wm,min_col=1,min_row=3,max_row=2+len(KEYS)))
 for i,c in enumerate(COMPS):
     line.series[i].graphicalProperties.line.solidFill=COMPFILL[c]
     line.series[i].graphicalProperties.line.width=20000
     line.series[i].smooth=False
+finish_chart(line, xt="Month", yt="Units issued")
 wm.add_chart(line,"J2")
 
 out_xlsx = os.path.join(ROOT, "tools/template.xlsx")
