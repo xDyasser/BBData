@@ -117,8 +117,9 @@
       <h2>Import / Export</h2>
       <p class="muted">Back up or move your data. JSON keeps everything; Excel is a per-month report.</p>
       <div class="row">
+        <button id="btn-report" class="primary">📊 Export report (graphs + analysis)</button>
+        <button id="btn-export-xlsx">⬇ Export Excel (analysis + forms)</button>
         <button id="btn-export-json">⬇ Export JSON (full backup)</button>
-        <button id="btn-export-xlsx">⬇ Export Excel</button>
         <label class="filebtn">⬆ Import JSON<input type="file" id="imp-json" accept=".json" hidden></label>
         <label class="filebtn">⬆ Import Excel workbook<input type="file" id="imp-xlsx" accept=".xlsx,.xls" hidden></label>
       </div>
@@ -142,6 +143,7 @@
 </main>
 
 <footer class="foot"><span id="foot-count"></span> · Data stored locally in this browser</footer>
+<div id="report-offscreen" style="position:absolute;left:-99999px;top:0;width:0;height:0;overflow:hidden;"></div>
 
 <script src="vendor/chart.umd.js"></script>
 <script src="vendor/xlsx.full.min.js"></script>

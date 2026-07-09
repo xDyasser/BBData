@@ -24,9 +24,16 @@ file with `python3 tools/build_single.py`.
   **no login and no server**.
 - The app ships pre-loaded with all **30 months** from the original workbook
   (Jan 2024 – Jul 2026).
-- **Back up or move your data** from the *Manage / Import* tab:
+- **Export / reporting** from the *Manage / Import* tab:
+  - **Export report (graphs + analysis)** — a polished, printable report that
+    opens in a new tab with KPIs, auto-generated key findings, four graphs
+    (yearly issuance, component share, by-ward, monthly trend) and summary
+    tables. Use its **Print / Save as PDF** button for a shareable PDF.
+  - **Export Excel** — a structured workbook: **Summary**, **By Year**,
+    **By Ward**, and **By Month** analysis sheets, followed by one form sheet
+    per month. (Real charts can't be embedded in `.xlsx` from the browser —
+    the graphs live in the report/PDF above.)
   - **Export JSON** — a full backup of everything.
-  - **Export Excel** — a per-month report workbook.
   - **Import JSON** — restore a backup (replaces current data).
   - **Import Excel workbook** — read months from a workbook shaped like the
     original form (detects month/year from each sheet tab name).

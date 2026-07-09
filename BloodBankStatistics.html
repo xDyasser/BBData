@@ -221,8 +221,9 @@ button.danger{color:#fff;background:#c0392b;border-color:#c0392b;}
       <h2>Import / Export</h2>
       <p class="muted">Back up or move your data. JSON keeps everything; Excel is a per-month report.</p>
       <div class="row">
+        <button id="btn-report" class="primary">📊 Export report (graphs + analysis)</button>
+        <button id="btn-export-xlsx">⬇ Export Excel (analysis + forms)</button>
         <button id="btn-export-json">⬇ Export JSON (full backup)</button>
-        <button id="btn-export-xlsx">⬇ Export Excel</button>
         <label class="filebtn">⬆ Import JSON<input type="file" id="imp-json" accept=".json" hidden></label>
         <label class="filebtn">⬆ Import Excel workbook<input type="file" id="imp-xlsx" accept=".xlsx,.xls" hidden></label>
       </div>
@@ -246,6 +247,7 @@ button.danger{color:#fff;background:#c0392b;border-color:#c0392b;}
 </main>
 
 <footer class="foot"><span id="foot-count"></span> · Data stored locally in this browser</footer>
+<div id="report-offscreen" style="position:absolute;left:-99999px;top:0;width:0;height:0;overflow:hidden;"></div>
 
 <script>
 /*!
@@ -661,23 +663,80 @@ window.BB_SEED = {"wards":["Rehab ICU 4th floor","LTC 3rd floor","LTC 5th floor"
   function today(){ return new Date().toISOString().slice(0,10); }
   function download(blob,name){ const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(a.href),1000); }
 
-  // Excel export: one sheet per month, mirroring the form layout
+  // Excel export: analysis sheets first, then one form sheet per month
   function exportXLSX() {
+    const keys=monthKeys();
+    if(!keys.length){ msg("No data to export.","err"); return; }
     const wb=XLSX.utils.book_new();
-    monthKeys().forEach(key=>{
+    const comps=store.components;
+    const addSheet=(name,aoa,cols,merges)=>{
+      const ws=XLSX.utils.aoa_to_sheet(aoa);
+      if(cols) ws["!cols"]=cols;
+      if(merges) ws["!merges"]=merges;
+      XLSX.utils.book_append_sheet(wb, ws, name.replace(/[^A-Za-z0-9 ]/g,"").slice(0,31));
+    };
+    const range=`${keyLabel(keys[0])} – ${keyLabel(keys.slice(-1)[0])}`;
+
+    /* --- Summary --- */
+    const st=sectionTotalsAll(), ct=componentTotals(), grand=st[0].n||1;
+    const sum=[
+      ["Blood Bank Statistics — Summary"],
+      ["Reporting period", range],
+      ["Months on record", keys.length],
+      ["Generated", new Date().toLocaleString()],
+      [],
+      ["Activity","Total units"],
+      ...st.map(x=>[x.l,x.n]),
+      [],
+      ["Component","Units issued","Share %"],
+      ...ct.sort((a,b)=>b.n-a.n).map(x=>[x.c,x.n,Math.round(x.n/grand*100)]),
+    ];
+    addSheet("Summary",sum,[{wch:30},{wch:16},{wch:10}],[{s:{r:0,c:0},e:{r:0,c:2}}]);
+
+    /* --- By Year (year × component) --- */
+    const ym=yearlyMatrix();
+    const byYear=[["Units issued by year and component — "+range],[],
+      ["Year",...comps,"Total"],
+      ...ym.ys.map(y=>[y,...comps.map(c=>ym.cell(y,c)),ym.rowTotal(y)]),
+      ["Total",...comps.map(c=>ym.colTotal(c)),ym.grand()],
+    ];
+    addSheet("By Year",byYear,[{wch:10},...comps.map(()=>({wch:12})),{wch:12}],[{s:{r:0,c:0},e:{r:0,c:comps.length+1}}]);
+
+    /* --- By Ward (ward × component across all months) --- */
+    const wardComp=(w,c)=>keys.reduce((a,k)=>a+issueMonthTotal(k,c,w),0);
+    const byWard=[["Units issued by ward and component — "+range],[],
+      ["Ward / Floor",...comps,"Total","Share %"],
+      ...store.wards.map(w=>{ const row=comps.map(c=>wardComp(w,c)); const t=row.reduce((a,b)=>a+b,0); return [w,...row,t,Math.round(t/grand*100)]; }),
+      ["Total",...comps.map(c=>store.wards.reduce((a,w)=>a+wardComp(w,c),0)),grand,100],
+    ];
+    addSheet("By Ward",byWard,[{wch:22},...comps.map(()=>({wch:12})),{wch:12},{wch:9}],[{s:{r:0,c:0},e:{r:0,c:comps.length+2}}]);
+
+    /* --- By Month (month × component) --- */
+    const byMonth=[["Units issued by month and component — "+range],[],
+      ["Month",...comps,"Received XM","Returned","Total issued"],
+      ...keys.map(k=>[keyLabel(k),...comps.map(c=>issueMonthTotal(k,c,"__all")),
+        sectionMonthTotal(k,"received"), sectionMonthTotal(k,"returned_ward")+sectionMonthTotal(k,"returned_ash"),
+        issueMonthTotal(k,"__all","__all")]),
+    ];
+    addSheet("By Month",byMonth,[{wch:12},...comps.map(()=>({wch:11})),{wch:12},{wch:11},{wch:13}],[{s:{r:0,c:0},e:{r:0,c:comps.length+3}}]);
+
+    /* --- per-month form sheets --- */
+    keys.forEach(key=>{
       const M=store.data[key], nDays=daysInMonth(key);
       const rows=[];
       const hdr=(title)=>{ const r=[title]; for(let d=1;d<=nDays;d++) r.push(d); r.push("Total"); rows.push(r); };
       const dataRow=(label,obj)=>{ const r=[label]; let t=0; for(let d=1;d<=nDays;d++){ const v=Number((obj||{})[d])||0; r.push(v||""); t+=v; } r.push(t); rows.push(r); };
       rows.push(["Blood Bank Daily Statistics — "+keyLabel(key)]);
-      store.components.forEach(c=>{ hdr("ISSUING "+c); store.wards.forEach(w=>dataRow(w,(M.issue[c]||{})[w])); });
-      hdr("RECEIVED CROSS MATCHED"); store.wards.forEach(w=>dataRow(w,M.received[w]));
+      rows.push([]);
+      comps.forEach(c=>{ hdr("ISSUING "+c); store.wards.forEach(w=>dataRow(w,(M.issue[c]||{})[w])); rows.push([]); });
+      hdr("RECEIVED CROSS MATCHED"); store.wards.forEach(w=>dataRow(w,M.received[w])); rows.push([]);
       [["returned_ward","RETURNED FROM WARD"],["returned_ash","RETURNED ARH→ASH"],["inventory","DAILY INVENTORY FROM ASH"]].forEach(([s,t])=>{
-        hdr(t); RET_COMPONENTS.forEach(c=>dataRow(c,M[s][c])); });
-      const ws=XLSX.utils.aoa_to_sheet(rows);
-      XLSX.utils.book_append_sheet(wb, ws, keyLabel(key).replace(/[^A-Za-z0-9 ]/g,"").slice(0,31));
+        hdr(t); RET_COMPONENTS.forEach(c=>dataRow(c,M[s][c])); rows.push([]); });
+      addSheet(keyLabel(key), rows, [{wch:22},...Array.from({length:nDays},()=>({wch:3.5})),{wch:7}]);
     });
-    XLSX.writeFile(wb, `blood-bank-report-${today()}.xlsx`);
+
+    XLSX.writeFile(wb, `blood-bank-workbook-${today()}.xlsx`);
+    msg("Excel workbook exported (Summary, By Year/Ward/Month, plus monthly forms).","ok");
   }
 
   // Excel import: parse a workbook shaped like the original form
@@ -738,6 +797,161 @@ window.BB_SEED = {"wards":["Rehab ICU 4th floor","LTC 3rd floor","LTC 5th floor"
     return {key,month};
   }
 
+  /* ---------- analysis engine (used by report + Excel) ---------- */
+  const RPT = { PRBC:"#e34948", FFP:"#eda100", CRYO:"#2a78d6", Platelets:"#1baf7a" };
+  function keysInYear(y){ return monthKeys().filter(k=>k.startsWith(y)); }
+  function yearlyMatrix(){ // {years, comps, cell(y,c), rowTotal(y), colTotal(c), grand}
+    const ys=years(), comps=store.components;
+    const cell=(y,c)=>keysInYear(y).reduce((a,k)=>a+issueMonthTotal(k,c,"__all"),0);
+    return {ys,comps,cell,
+      rowTotal:y=>comps.reduce((a,c)=>a+cell(y,c),0),
+      colTotal:c=>ys.reduce((a,y)=>a+cell(y,c),0),
+      grand:()=>ys.reduce((a,y)=>a+comps.reduce((b,c)=>b+cell(y,c),0),0)};
+  }
+  function wardTotals(){ return store.wards.map(w=>({w, n:monthKeys().reduce((a,k)=>a+issueMonthTotal(k,"__all",w),0)})); }
+  function componentTotals(){ return store.components.map(c=>({c, n:monthKeys().reduce((a,k)=>a+issueMonthTotal(k,c,"__all"),0)})); }
+  function sectionTotalsAll(){
+    const secs=[["issue","Units issued"],["received","Cross-matched received"],["returned_ward","Returned from ward"],["returned_ash","Returned ARH→ASH"],["inventory","Inventory from ASH"]];
+    return secs.map(([s,l])=>({s,l,n:monthKeys().reduce((a,k)=>a+sectionMonthTotal(k,s),0)}));
+  }
+  function insights(){
+    const out=[]; const keys=monthKeys(); if(!keys.length) return out;
+    const grand=keys.reduce((a,k)=>a+issueMonthTotal(k,"__all","__all"),0);
+    const ct=componentTotals().sort((a,b)=>b.n-a.n);
+    const wt=wardTotals().sort((a,b)=>b.n-a.n);
+    const pct=n=>grand?Math.round(n/grand*100):0;
+    out.push(`A total of <b>${grand.toLocaleString()}</b> units were issued across <b>${keys.length}</b> months (${keyLabel(keys[0])} – ${keyLabel(keys.slice(-1)[0])}).`);
+    if(ct[0]) out.push(`<b>${ct[0].c}</b> is the most-issued component — ${ct[0].n.toLocaleString()} units (${pct(ct[0].n)}% of all issuance), followed by ${ct[1]?ct[1].c+" ("+pct(ct[1].n)+"%)":"—"}.`);
+    if(wt[0]) out.push(`<b>${wt[0].w}</b> receives the most product — ${wt[0].n.toLocaleString()} units (${pct(wt[0].n)}% of the total); the top 3 wards account for ${pct(wt[0].n+(wt[1]?wt[1].n:0)+(wt[2]?wt[2].n:0))}%.`);
+    const ys=years();
+    if(ys.length>=2){
+      const a=keysInYear(ys[ys.length-2]).reduce((s,k)=>s+issueMonthTotal(k,"__all","__all"),0);
+      const b=keysInYear(ys[ys.length-1]).reduce((s,k)=>s+issueMonthTotal(k,"__all","__all"),0);
+      if(a){ const d=Math.round((b-a)/a*100); out.push(`Issuance ${d>=0?"rose":"fell"} <b>${Math.abs(d)}%</b> from ${ys[ys.length-2]} (${a.toLocaleString()}) to ${ys[ys.length-1]} (${b.toLocaleString()}). <span class="muted">Note: partial years affect this.</span>`); }
+    }
+    const st=sectionTotalsAll(); const iss=st.find(x=>x.s==="issue").n;
+    const ret=st.find(x=>x.s==="returned_ward").n+st.find(x=>x.s==="returned_ash").n;
+    if(iss) out.push(`Returns represent <b>${(ret/iss*100).toFixed(1)}%</b> of issued volume (${ret.toLocaleString()} returned vs ${iss.toLocaleString()} issued).`);
+    return out;
+  }
+
+  /* ---------- report (graphs + analysis, printable / PDF) ---------- */
+  function chartImg(cfg, w=900, h=340){
+    return new Promise(res=>{
+      const holder=$("#report-offscreen");
+      const c=document.createElement("canvas");
+      c.style.width=w+"px"; c.style.height=h+"px"; holder.appendChild(c);
+      let done=false;
+      const finish=(ch)=>{ if(done)return; done=true; let url=""; try{url=ch.toBase64Image("image/png",1);}catch(e){} ch.destroy(); c.remove(); res(url); };
+      cfg.options=Object.assign({responsive:false,animation:{duration:0},devicePixelRatio:2},cfg.options);
+      const ch=new Chart(c,cfg);
+      requestAnimationFrame(()=>requestAnimationFrame(()=>finish(ch)));
+      setTimeout(()=>finish(ch),500);
+    });
+  }
+  const RPT_SCALES={ x:{grid:{display:false},ticks:{color:"#555",font:{size:12}}}, y:{beginAtZero:true,grid:{color:"#e7e7e4"},ticks:{color:"#555",font:{size:12}}} };
+  const RPT_LEGEND={position:"bottom",labels:{color:"#333",usePointStyle:true,pointStyle:"rectRounded",boxWidth:12,font:{size:12}}};
+
+  async function buildReport(){
+    const keys=monthKeys();
+    if(!keys.length){ msg("No data to report on.","err"); return; }
+    msg("Generating report…","");
+    const ys=years(), comps=store.components;
+    // 1) yearly issued by component (grouped bars)
+    const yearlyImg=await chartImg({type:"bar",
+      data:{labels:ys,datasets:comps.map(c=>({label:c,backgroundColor:RPT[c],borderRadius:3,
+        data:ys.map(y=>keysInYear(y).reduce((a,k)=>a+issueMonthTotal(k,c,"__all"),0))}))},
+      options:{plugins:{legend:RPT_LEGEND},scales:RPT_SCALES}});
+    // 2) component share doughnut
+    const ctv=componentTotals();
+    const compImg=await chartImg({type:"doughnut",
+      data:{labels:comps,datasets:[{data:ctv.map(x=>x.n),backgroundColor:comps.map(c=>RPT[c]),borderColor:"#fff",borderWidth:2}]},
+      options:{cutout:"58%",plugins:{legend:RPT_LEGEND}}},430,340);
+    // 3) issued by ward (stacked horizontal by component)
+    const wardImg=await chartImg({type:"bar",
+      data:{labels:store.wards,datasets:comps.map(c=>({label:c,backgroundColor:RPT[c],borderColor:"#fff",borderWidth:1,
+        data:store.wards.map(w=>keys.reduce((a,k)=>a+issueMonthTotal(k,c,w),0))}))},
+      options:{indexAxis:"y",plugins:{legend:RPT_LEGEND},scales:{x:{stacked:true,...RPT_SCALES.x,grid:{color:"#e7e7e4"}},y:{stacked:true,ticks:{color:"#333",font:{size:11}},grid:{display:false}}}}},900,420);
+    // 4) monthly trend for latest year
+    const ly=ys[ys.length-1], lyk=keysInYear(ly);
+    const monthlyImg=await chartImg({type:"line",
+      data:{labels:lyk.map(k=>MONTH_ABBR[+k.slice(5)]),datasets:comps.map(c=>({label:c,borderColor:RPT[c],backgroundColor:RPT[c]+"22",borderWidth:2,tension:.25,pointRadius:3,
+        data:lyk.map(k=>issueMonthTotal(k,c,"__all"))}))},
+      options:{plugins:{legend:RPT_LEGEND},scales:RPT_SCALES}});
+
+    // tables
+    const ym=yearlyMatrix();
+    const fmt=n=>n.toLocaleString();
+    const yearlyTable=`<table class="rt"><thead><tr><th>Year</th>${comps.map(c=>`<th>${c}</th>`).join("")}<th>Total</th></tr></thead><tbody>${
+      ym.ys.map(y=>`<tr><td class="l">${y}</td>${comps.map(c=>`<td>${fmt(ym.cell(y,c))}</td>`).join("")}<td class="tot">${fmt(ym.rowTotal(y))}</td></tr>`).join("")
+    }</tbody><tfoot><tr><td class="l">Total</td>${comps.map(c=>`<td>${fmt(ym.colTotal(c))}</td>`).join("")}<td class="tot">${fmt(ym.grand())}</td></tr></tfoot></table>`;
+    const grand=ym.grand()||1;
+    const wardTable=`<table class="rt"><thead><tr><th>Ward / Floor</th><th>Units</th><th>Share</th></tr></thead><tbody>${
+      wardTotals().sort((a,b)=>b.n-a.n).map(x=>`<tr><td class="l">${x.w}</td><td>${fmt(x.n)}</td><td>${(x.n/grand*100).toFixed(1)}%</td></tr>`).join("")
+    }</tbody></table>`;
+    const secTable=`<table class="rt"><thead><tr><th>Activity</th><th>Total units</th></tr></thead><tbody>${
+      sectionTotalsAll().map(x=>`<tr><td class="l">${x.l}</td><td>${fmt(x.n)}</td></tr>`).join("")
+    }</tbody></table>`;
+    const bullets=insights().map(t=>`<li>${t}</li>`).join("");
+
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>Blood Bank Statistics — Report</title>
+<style>
+:root{--ink:#111;--mut:#666;--line:#e2e2df;--accent:#c0392b}
+*{box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;color:var(--ink);margin:0;background:#f3f3f1}
+.page{max-width:900px;margin:0 auto;background:#fff;padding:36px 44px}
+.hd{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid var(--accent);padding-bottom:14px;margin-bottom:20px}
+.hd h1{margin:0;font-size:22px}
+.hd .sub{color:var(--mut);font-size:13px;margin-top:2px}
+.hd .drop{font-size:30px}
+h2{font-size:15px;text-transform:uppercase;letter-spacing:.04em;color:var(--accent);margin:26px 0 10px;border-bottom:1px solid var(--line);padding-bottom:5px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:6px 0 4px}
+.kpi{border:1px solid var(--line);border-radius:9px;padding:11px 13px}
+.kpi .l{font-size:11px;color:var(--mut);text-transform:uppercase;letter-spacing:.03em}
+.kpi .v{font-size:24px;font-weight:700}
+ul.ins{margin:4px 0;padding-left:20px;line-height:1.6;font-size:14px}
+ul.ins li{margin:3px 0}
+img.chart{width:100%;border:1px solid var(--line);border-radius:9px;margin:6px 0}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+table.rt{border-collapse:collapse;width:100%;font-size:13px;margin:4px 0}
+table.rt th,table.rt td{border:1px solid var(--line);padding:5px 8px;text-align:right}
+table.rt th{background:#faf9f7;font-size:11px;text-transform:uppercase;letter-spacing:.02em;color:#555}
+table.rt td.l,table.rt th:first-child{text-align:left}
+table.rt td.tot,table.rt tfoot td{font-weight:700;background:#faf9f7}
+.muted{color:var(--mut);font-size:.9em;font-weight:400}
+.foot{margin-top:26px;border-top:1px solid var(--line);padding-top:10px;color:var(--mut);font-size:11px;display:flex;justify-content:space-between}
+.bar{position:sticky;top:0;background:#fff;border-bottom:1px solid var(--line);padding:10px 44px;display:flex;gap:10px;justify-content:flex-end;max-width:900px;margin:0 auto}
+.bar button{font:inherit;font-weight:600;border:1px solid var(--accent);background:var(--accent);color:#fff;padding:8px 16px;border-radius:8px;cursor:pointer}
+.bar button.sec{background:#fff;color:var(--accent)}
+@media print{.bar{display:none}body{background:#fff}.page{padding:0}h2{break-after:avoid}img.chart,table.rt{break-inside:avoid}.two{break-inside:avoid}}
+</style></head><body>
+<div class="bar"><button onclick="window.print()">🖨 Print / Save as PDF</button><button class="sec" onclick="window.close()">Close</button></div>
+<div class="page">
+  <div class="hd"><div><h1>Blood Bank Statistics Report</h1><div class="sub">Form-LAB-ARH-GEN-016 · ${keyLabel(keys[0])} – ${keyLabel(keys.slice(-1)[0])} · ${keys.length} months</div></div><div class="drop">🩸</div></div>
+  <div class="kpis">
+    <div class="kpi"><div class="l">Units issued</div><div class="v">${fmt(sectionTotalsAll()[0].n)}</div></div>
+    <div class="kpi"><div class="l">Cross-matched</div><div class="v">${fmt(sectionTotalsAll()[1].n)}</div></div>
+    <div class="kpi"><div class="l">Returned</div><div class="v">${fmt(sectionTotalsAll()[2].n+sectionTotalsAll()[3].n)}</div></div>
+    <div class="kpi"><div class="l">Top component</div><div class="v">${componentTotals().sort((a,b)=>b.n-a.n)[0].c}</div></div>
+  </div>
+  <h2>Key findings</h2><ul class="ins">${bullets}</ul>
+  <h2>Yearly issuance by component</h2><img class="chart" src="${yearlyImg}">
+  <div class="two"><div><h2>Component share</h2><img class="chart" src="${compImg}"></div><div><h2>Component totals</h2>${yearlyTable}</div></div>
+  <h2>Issued by ward / floor</h2><img class="chart" src="${wardImg}">
+  <div class="two"><div><h2>Ward breakdown</h2>${wardTable}</div><div><h2>Activity summary</h2>${secTable}</div></div>
+  <h2>Monthly trend — ${ly}</h2><img class="chart" src="${monthlyImg}">
+  <div class="foot"><span>Generated ${new Date().toLocaleString()}</span><span>Blood Bank Statistics app</span></div>
+</div></body></html>`;
+
+    const w=window.open("","_blank");
+    if(!w){ // popup blocked → download instead
+      download(new Blob([html],{type:"text/html"}), `blood-bank-report-${today()}.html`);
+      msg("Report downloaded (popup was blocked). Open it and print to PDF.","ok"); return;
+    }
+    w.document.open(); w.document.write(html); w.document.close();
+    msg("Report opened in a new tab — use its Print / Save as PDF button.","ok");
+  }
+
   /* ---------- view switching ---------- */
   function refreshFooter(){ $("#foot-count").textContent=`${monthKeys().length} months · ${years().length? years()[0]+"–"+years().slice(-1)[0]:"—"}`; }
   function refreshAll(){ initDashFilters(); renderDashboard(); initEntry(); renderManage(); refreshFooter(); }
@@ -765,6 +979,7 @@ window.BB_SEED = {"wards":["Rehab ICU 4th floor","LTC 3rd floor","LTC 5th floor"
     $("#btn-add-month").onclick=addMonth;
     $("#btn-export-json").onclick=exportJSON;
     $("#btn-export-xlsx").onclick=exportXLSX;
+    $("#btn-report").onclick=buildReport;
     $("#imp-json").onchange=e=>e.target.files[0]&&importJSON(e.target.files[0]);
     $("#imp-xlsx").onchange=e=>e.target.files[0]&&importXLSX(e.target.files[0]);
     $("#btn-reseed").onclick=()=>{ if(confirm("Replace ALL current data with the bundled workbook data?")){ store=seedStore(); save(); refreshAll(); msg("Bundled data restored.","ok"); } };
