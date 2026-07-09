@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Blood Bank Statistics</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="drop">🩸</span>
+    <div>
+      <h1>Blood Bank Statistics</h1>
+      <p class="sub">Form-LAB-ARH-GEN-016 · Daily component tracking &amp; analytics</p>
+    </div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-view="dashboard" class="active">Dashboard</button>
+    <button data-view="entry">Data Entry</button>
+    <button data-view="manage">Manage / Import</button>
+  </nav>
+</header>
+
+<main>
+  <!-- DASHBOARD -->
+  <section id="view-dashboard" class="view">
+    <div class="filters card">
+      <label>Scope
+        <select id="f-scope">
+          <option value="year">By year (yearly totals)</option>
+          <option value="month">By month (within a year)</option>
+          <option value="day">By day (within a month)</option>
+        </select>
+      </label>
+      <label id="wrap-year">Year <select id="f-year"></select></label>
+      <label id="wrap-month" hidden>Month <select id="f-month"></select></label>
+      <label>Component
+        <select id="f-component">
+          <option value="__all">All components</option>
+        </select>
+      </label>
+      <label>Ward / Floor
+        <select id="f-ward"><option value="__all">All wards</option></select>
+      </label>
+    </div>
+
+    <div class="kpis" id="kpis"></div>
+
+    <div class="grid2">
+      <figure class="card chart-card">
+        <figcaption id="cap-trend">Trend</figcaption>
+        <div class="canvas-wrap"><canvas id="chart-trend"></canvas></div>
+      </figure>
+      <figure class="card chart-card">
+        <figcaption id="cap-component">Issued by component</figcaption>
+        <div class="canvas-wrap"><canvas id="chart-component"></canvas></div>
+      </figure>
+    </div>
+    <div class="grid2">
+      <figure class="card chart-card wide">
+        <figcaption id="cap-ward">Issued by ward / floor</figcaption>
+        <div class="canvas-wrap tall"><canvas id="chart-ward"></canvas></div>
+      </figure>
+      <figure class="card chart-card">
+        <figcaption>Activity breakdown</figcaption>
+        <div class="canvas-wrap"><canvas id="chart-sections"></canvas></div>
+      </figure>
+    </div>
+  </section>
+
+  <!-- DATA ENTRY -->
+  <section id="view-entry" class="view" hidden>
+    <div class="filters card">
+      <label>Month
+        <select id="e-month"></select>
+      </label>
+      <label>Section
+        <select id="e-section">
+          <option value="issue">Issuing (by component &amp; ward)</option>
+          <option value="received">Received Cross-matched (by ward)</option>
+          <option value="returned_ward">Returned from Ward (by component)</option>
+          <option value="returned_ash">Returned ARH→ASH (by component)</option>
+          <option value="inventory">Daily inventory from ASH (by component)</option>
+        </select>
+      </label>
+      <label id="e-wrap-comp">Component
+        <select id="e-component"></select>
+      </label>
+      <span class="entry-hint" id="e-hint"></span>
+    </div>
+    <div class="card table-scroll">
+      <table id="entry-table" class="grid"></table>
+    </div>
+  </section>
+
+  <!-- MANAGE -->
+  <section id="view-manage" class="view" hidden>
+    <div class="card">
+      <h2>Add a month</h2>
+      <p class="muted">Create a blank month to start entering daily data.</p>
+      <div class="row">
+        <select id="add-month">
+          <option value="1">January</option><option value="2">February</option>
+          <option value="3">March</option><option value="4">April</option>
+          <option value="5">May</option><option value="6">June</option>
+          <option value="7">July</option><option value="8">August</option>
+          <option value="9">September</option><option value="10">October</option>
+          <option value="11">November</option><option value="12">December</option>
+        </select>
+        <input type="number" id="add-year" min="2000" max="2100" step="1" placeholder="Year">
+        <button id="btn-add-month" class="primary">Add month</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Import / Export</h2>
+      <p class="muted">Back up or move your data. JSON keeps everything; Excel is a per-month report.</p>
+      <div class="row">
+        <button id="btn-export-json">⬇ Export JSON (full backup)</button>
+        <button id="btn-export-xlsx">⬇ Export Excel</button>
+        <label class="filebtn">⬆ Import JSON<input type="file" id="imp-json" accept=".json" hidden></label>
+        <label class="filebtn">⬆ Import Excel workbook<input type="file" id="imp-xlsx" accept=".xlsx,.xls" hidden></label>
+      </div>
+      <p id="io-msg" class="io-msg"></p>
+    </div>
+
+    <div class="card">
+      <h2>Months on record</h2>
+      <div id="month-list" class="month-list"></div>
+    </div>
+
+    <div class="card danger-zone">
+      <h2>Reset</h2>
+      <p class="muted">Restore the original workbook data, or wipe everything.</p>
+      <div class="row">
+        <button id="btn-reseed">Restore bundled data</button>
+        <button id="btn-wipe" class="danger">Delete all data</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot"><span id="foot-count"></span> · Data stored locally in this browser</footer>
+
+<script src="vendor/chart.umd.js"></script>
+<script src="vendor/xlsx.full.min.js"></script>
+<script src="data-seed.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
