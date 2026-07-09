@@ -82,6 +82,7 @@ table.grid tfoot td{font-weight:700;background:var(--surface-2);}
 table.grid input{width:38px;min-width:0;text-align:center;border:1px solid transparent;background:transparent;padding:3px 1px;border-radius:4px;}
 table.grid input:focus{border-color:var(--accent);background:var(--surface-2);outline:none;}
 table.grid input:not(:placeholder-shown){font-weight:600;}
+table.grid input.cell-selected{background:color-mix(in srgb,var(--accent) 20%,transparent);border-color:var(--accent);}
 
 .row{display:flex;flex-wrap:wrap;gap:.6rem;align-items:center;}
 button{font:inherit;font-weight:600;cursor:pointer;border:1px solid var(--border-strong);background:var(--surface-2);color:var(--text-primary);padding:.5rem .9rem;border-radius:8px;}

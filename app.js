@@ -293,12 +293,12 @@
     let html="<thead><tr><th class='rowhead'>"+(meta.rows==="ward"?"Ward / Floor":"Component")+"</th>";
     for(let d=1;d<=nDays;d++) html+=`<th>${d}</th>`;
     html+="<th class='total'>Total</th></tr></thead><tbody>";
-    rowLabels.forEach(r=>{
+    rowLabels.forEach((r,ri)=>{
       block[r]=block[r]||{};
       html+=`<tr><td class="rowhead">${r}</td>`;
       for(let d=1;d<=nDays;d++){
         const v=block[r][d];
-        html+=`<td><input inputmode="numeric" data-row="${encodeURIComponent(r)}" data-day="${d}" value="${v??""}" placeholder="·"></td>`;
+        html+=`<td><input inputmode="numeric" data-row="${encodeURIComponent(r)}" data-day="${d}" data-r="${ri}" data-c="${d-1}" value="${v??""}" placeholder="·"></td>`;
       }
       html+=`<td class="total" data-rowtotal="${encodeURIComponent(r)}">${sumDays(block[r])||0}</td></tr>`;
     });
@@ -307,17 +307,105 @@
     html+=`<td class="total" data-grandtotal>${grandTotal(block,rowLabels)}</td></tr></tfoot>`;
     table.innerHTML=html;
 
-    table.oninput=(e)=>{
-      const inp=e.target; if(inp.tagName!=="INPUT") return;
+    // ----- grid model -----
+    const nRows=rowLabels.length, nCols=nDays;
+    const cell=(ri,ci)=> table.querySelector(`input[data-r="${ri}"][data-c="${ci}"]`);
+    const commit=(inp,{recalc=true}={})=>{
       const r=decodeURIComponent(inp.dataset.row), d=inp.dataset.day;
       let val=parseInt(inp.value,10);
-      if (inp.value.trim()===""||isNaN(val)||val<0){ delete block[r][d]; }
-      else block[r][d]=val;
-      table.querySelector(`[data-rowtotal="${encodeURIComponent(r)}"]`).textContent=sumDays(block[r])||0;
-      table.querySelector(`[data-coltotal="${d}"]`).textContent=colTotal(block,rowLabels,d);
-      table.querySelector("[data-grandtotal]").textContent=grandTotal(block,rowLabels);
-      save();
+      if (inp.value.trim()===""||isNaN(val)||val<0){ delete block[r][d]; inp.value=""; }
+      else { block[r][d]=val; inp.value=String(val); }
+      if(recalc){
+        table.querySelector(`[data-rowtotal="${encodeURIComponent(r)}"]`).textContent=sumDays(block[r])||0;
+        table.querySelector(`[data-coltotal="${d}"]`).textContent=colTotal(block,rowLabels,d);
+        table.querySelector("[data-grandtotal]").textContent=grandTotal(block,rowLabels);
+      }
     };
+    const recalcAll=()=>{
+      rowLabels.forEach(r=> table.querySelector(`[data-rowtotal="${encodeURIComponent(r)}"]`).textContent=sumDays(block[r])||0);
+      for(let d=1;d<=nDays;d++) table.querySelector(`[data-coltotal="${d}"]`).textContent=colTotal(block,rowLabels,d);
+      table.querySelector("[data-grandtotal]").textContent=grandTotal(block,rowLabels);
+    };
+
+    table.oninput=(e)=>{
+      const inp=e.target; if(inp.tagName!=="INPUT") return;
+      commit(inp); save();
+    };
+
+    // ----- cell selection -----
+    let anchor=null;                       // {ri,ci}
+    const clearSel=()=> table.querySelectorAll("input.cell-selected").forEach(i=>i.classList.remove("cell-selected"));
+    const selectRange=(a,b)=>{
+      clearSel();
+      const r0=Math.min(a.ri,b.ri), r1=Math.max(a.ri,b.ri);
+      const c0=Math.min(a.ci,b.ci), c1=Math.max(a.ci,b.ci);
+      for(let ri=r0;ri<=r1;ri++) for(let ci=c0;ci<=c1;ci++){ const c=cell(ri,ci); if(c) c.classList.add("cell-selected"); }
+    };
+    const pos=(inp)=>({ri:+inp.dataset.r, ci:+inp.dataset.c});
+
+    let dragging=false;
+    table.addEventListener("mousedown",e=>{
+      const inp=e.target; if(inp.tagName!=="INPUT") return;
+      if(e.shiftKey && anchor){ e.preventDefault(); selectRange(anchor,pos(inp)); return; }
+      anchor=pos(inp); dragging=true; clearSel(); inp.classList.add("cell-selected");
+    });
+    table.addEventListener("mouseover",e=>{
+      if(!dragging) return;
+      const inp=e.target; if(inp.tagName!=="INPUT"||!anchor) return;
+      selectRange(anchor,pos(inp));
+    });
+    document.addEventListener("mouseup",()=>{ dragging=false; });
+
+    // ----- keyboard navigation -----
+    const focusCell=(ri,ci)=>{ const c=cell(ri,ci); if(c){ c.focus(); c.select(); anchor=pos(c); clearSel(); c.classList.add("cell-selected"); } return !!c; };
+    table.addEventListener("keydown",e=>{
+      const inp=e.target; if(inp.tagName!=="INPUT") return;
+      const {ri,ci}=pos(inp);
+      const atStart=inp.selectionStart===0 && inp.selectionEnd===0;
+      const atEnd=inp.selectionStart===inp.value.length && inp.selectionEnd===inp.value.length;
+      let nr=ri,nc=ci,handled=true;
+      switch(e.key){
+        case "Enter":      nr=ri+(e.shiftKey?-1:1); break;
+        case "Tab":        nc=ci+(e.shiftKey?-1:1); break;
+        case "ArrowDown":  nr=ri+1; break;
+        case "ArrowUp":    nr=ri-1; break;
+        case "ArrowRight": if(!atEnd){handled=false;break;} nc=ci+1; break;
+        case "ArrowLeft":  if(!atStart){handled=false;break;} nc=ci-1; break;
+        default: handled=false;
+      }
+      if(!handled) return;
+      // wrap Tab across row edges
+      if(e.key==="Tab"){
+        if(nc<0){ nc=nCols-1; nr=ri-1; }
+        else if(nc>=nCols){ nc=0; nr=ri+1; }
+      }
+      if(nr<0||nr>=nRows||nc<0||nc>=nCols){ e.preventDefault(); return; }
+      e.preventDefault();
+      focusCell(nr,nc);
+    });
+
+    // ----- paste from Excel -----
+    table.addEventListener("paste",e=>{
+      const inp=e.target; if(inp.tagName!=="INPUT") return;
+      const text=(e.clipboardData||window.clipboardData).getData("text");
+      if(text==null) return;
+      const rows=text.replace(/\r\n?/g,"\n").replace(/\n$/,"").split("\n").map(l=>l.split("\t"));
+      if(rows.length===1 && rows[0].length===1) return;  // single value: let default paste happen
+      e.preventDefault();
+      const {ri,ci}=pos(inp);
+      let lastR=ri,lastC=ci;
+      rows.forEach((cells,dr)=>{
+        cells.forEach((raw,dc)=>{
+          const c=cell(ri+dr,ci+dc); if(!c) return;
+          c.value=raw.trim();
+          commit(c,{recalc:false});
+          lastR=ri+dr; lastC=ci+dc;
+        });
+      });
+      recalcAll(); save();
+      selectRange({ri,ci},{ri:lastR,ci:lastC});
+      const lc=cell(lastR,lastC); if(lc) lc.focus();
+    });
   }
   function colTotal(block,rows,d){ let t=0; rows.forEach(r=>t+=Number((block[r]||{})[d])||0); return t||0; }
   function grandTotal(block,rows){ let t=0; rows.forEach(r=>t+=sumDays(block[r])); return t||0; }
