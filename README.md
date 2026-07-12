@@ -34,8 +34,12 @@ file with `python3 tools/build_single.py`.
     colored header bands, borders, frozen panes, live SUM formulas, and
     **native Excel charts** (pie, clustered bar, stacked bar, line) that open
     as real, editable charts inside Excel. See "How the styled Excel works".
-  - **Export Excel (monthly forms)** — the raw per-month daily forms, one
-    sheet per month (plain data, no styling).
+  - **Export Excel (monthly forms)** — the per-month daily forms, one styled
+    sheet per month mirroring Form-LAB-ARH-GEN-016 (colored section bands,
+    borders, day columns 1–31, live Total formulas, the Transfusion Lab block,
+    and the per-day staff-signature row). Built the same way as the analysis
+    workbook: a styled blank form is embedded as base64 and cloned+injected
+    per month via JSZip, so styling and formulas are preserved.
   - **Export JSON** — a full backup of everything.
   - **Import JSON** — restore a backup (replaces current data).
   - **Import Excel workbook** — read months from a workbook shaped like the
@@ -89,8 +93,13 @@ chart data ranges to the live number of years/months, drops `calcChain.xml` so
 Excel recalculates, and re-zips. The result is a genuinely styled workbook with
 real charts, produced entirely in the browser with no server.
 
-To change the template's look or charts, edit `tools/build_template.py`, run it
-(`python3 tools/build_template.py`), then rebuild the single file
+The **monthly-forms** export works the same way from a second embedded template:
+`tools/build_form_template.py` builds one styled blank form sheet plus a
+`BB_FORM_LAYOUT` cell map (`template-form-embed.js`); at export the app clones
+that sheet once per month and injects each month's values.
+
+To change either template, edit `tools/build_template.py` /
+`tools/build_form_template.py`, run it, then rebuild the single file
 (`python3 tools/build_single.py`).
 
 ## Project layout

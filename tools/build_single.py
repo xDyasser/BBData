@@ -14,6 +14,7 @@ chart = read("vendor/chart.umd.js")
 xlsx  = read("vendor/xlsx.full.min.js")
 jszip = read("vendor/jszip.min.js")
 tmpl  = read("template-embed.js")
+tmplf = read("template-form-embed.js")
 
 html = html.replace('<link rel="stylesheet" href="styles.css">', "<style>\n"+css+"\n</style>")
 
@@ -22,6 +23,7 @@ old_scripts = '''<script src="vendor/chart.umd.js"></script>
 <script src="vendor/jszip.min.js"></script>
 <script src="data-seed.js"></script>
 <script src="template-embed.js"></script>
+<script src="template-form-embed.js"></script>
 <script src="app.js"></script>'''
 new_scripts = (
     "<script>\n"+chart+"\n</script>\n"
@@ -29,6 +31,7 @@ new_scripts = (
     "<script>\n"+jszip+"\n</script>\n"
     "<script>\n"+seed+"\n</script>\n"
     "<script>\n"+tmpl+"\n</script>\n"
+    "<script>\n"+tmplf+"\n</script>\n"
     "<script>\n"+appjs+"\n</script>"
 )
 assert old_scripts in html, "expected script block not found in index.html"

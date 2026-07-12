@@ -601,87 +601,79 @@
     msg("Styled Excel exported — Summary, By Year, By Ward, By Month with native charts.","ok");
   }
 
-  // Plain Excel export (SheetJS): analysis sheets + one form sheet per month
-  function exportXLSX() {
+  // Styled monthly-form export: clone the embedded styled FORM sheet per month and
+  // inject each month's values via JSZip XML surgery (preserves styling + formulas).
+  async function exportXLSX(){
     const keys=monthKeys();
     if(!keys.length){ msg("No data to export.","err"); return; }
-    const wb=XLSX.utils.book_new();
-    const comps=store.components;
-    const addSheet=(name,aoa,cols,merges)=>{
-      const ws=XLSX.utils.aoa_to_sheet(aoa);
-      if(cols) ws["!cols"]=cols;
-      if(merges) ws["!merges"]=merges;
-      XLSX.utils.book_append_sheet(wb, ws, name.replace(/[^A-Za-z0-9 ]/g,"").slice(0,31));
+    if(!window.JSZip||!window.BB_FORM_TEMPLATE_B64){ msg("Form template unavailable.","err"); return; }
+    msg("Building styled monthly forms\u2026","");
+    const L=window.BB_FORM_LAYOUT;
+    const zip=await JSZip.loadAsync(b64ToBytes(window.BB_FORM_TEMPLATE_B64));
+    let wbxml=await zip.file("xl/workbook.xml").async("string");
+    let relsxml=await zip.file("xl/_rels/workbook.xml.rels").async("string");
+    let ctxml=await zip.file("[Content_Types].xml").async("string");
+
+    // locate the single blueprint FORM sheet
+    const sm=wbxml.match(/<sheet [^>]*\/>/);
+    const bpRid=(sm[0].match(/r:id="(rId\d+)"/)||[])[1];
+    let bpTarget=null;
+    (relsxml.match(/<Relationship\b[^>]*>/g)||[]).forEach(rel=>{
+      if(new RegExp('Id="'+bpRid+'"').test(rel)) bpTarget=(rel.match(/Target="([^"]+)"/)||[])[1];
+    });
+    const norm=(t)=>{ t=t.replace(/^\//,""); return t.startsWith("xl/")?t:"xl/"+t; };
+    const bpPath=norm(bpTarget);
+    const BLUE=await zip.file(bpPath).async("string");
+
+    // build a ref->value map for one month, then rewrite all matching cells in one pass
+    const buildMap=(key)=>{
+      const M=store.data[key], nDays=daysInMonth(key), map={};
+      map[L.title.ref]={t:"s",v:"Blood Bank Daily Statistics \u2014 "+keyLabel(key)};
+      const put=(block,label,row)=>{ const rec=block[label]||{};
+        for(let d=1;d<=31;d++){ const v=(d<=nDays)?rec[d]:undefined; map[L.dayCols[d]+row]={t:"n",v:(v==null||v===0||v==="")?null:v}; } };
+      L.sections.forEach(sec=>{ const block=sec.kind==="issue"?(M.issue[sec.comp]||{}):(M[sec.kind]||{}); sec.rows.forEach(rw=>put(block,rw.label,rw.row)); });
+      for(let d=1;d<=31;d++){ const v=(d<=nDays)?(M.signatures||{})[d]:undefined; map[L.dayCols[d]+L.sigRow]={t:"s",v:(v==null||v==="")?null:v}; }
+      return map;
     };
-    const range=`${keyLabel(keys[0])} – ${keyLabel(keys.slice(-1)[0])}`;
+    const injectCells=(xml,map)=> xml.replace(/<c r="([A-Z]+\d+)"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g,(m,ref)=>{
+      if(!Object.prototype.hasOwnProperty.call(map,ref)) return m;
+      const sMatch=m.match(/ s="(\d+)"/); const sAttr=sMatch?(' s="'+sMatch[1]+'"'):"";
+      const cell=map[ref];
+      if(cell==null||cell.v==null||cell.v==="") return '<c r="'+ref+'"'+sAttr+' t="n"/>';
+      if(cell.t==="s") return '<c r="'+ref+'"'+sAttr+' t="inlineStr"><is><t xml:space="preserve">'+xmlEsc(cell.v)+'</t></is></c>';
+      return '<c r="'+ref+'"'+sAttr+' t="n"><v>'+cell.v+'</v></c>';
+    });
+    const sheetName=(k)=>keyLabel(k).replace(/[\[\]:*?/\\]/g," ").slice(0,31);
 
-    /* --- Summary --- */
-    const st=sectionTotalsAll(), ct=componentTotals(), grand=st[0].n||1;
-    const sum=[
-      ["Blood Bank Statistics — Summary"],
-      ["Reporting period", range],
-      ["Months on record", keys.length],
-      ["Generated", new Date().toLocaleString()],
-      [],
-      ["Activity","Total units"],
-      ...st.map(x=>[x.l,x.n]),
-      [],
-      ["Component","Units issued","Share %"],
-      ...ct.sort((a,b)=>b.n-a.n).map(x=>[x.c,x.n,Math.round(x.n/grand*100)]),
-    ];
-    addSheet("Summary",sum,[{wch:30},{wch:16},{wch:10}],[{s:{r:0,c:0},e:{r:0,c:2}}]);
-
-    /* --- By Year (year × component) --- */
-    const ym=yearlyMatrix();
-    const byYear=[["Units issued by year and component — "+range],[],
-      ["Year",...comps,"Total"],
-      ...ym.ys.map(y=>[y,...comps.map(c=>ym.cell(y,c)),ym.rowTotal(y)]),
-      ["Total",...comps.map(c=>ym.colTotal(c)),ym.grand()],
-    ];
-    addSheet("By Year",byYear,[{wch:10},...comps.map(()=>({wch:12})),{wch:12}],[{s:{r:0,c:0},e:{r:0,c:comps.length+1}}]);
-
-    /* --- By Ward (ward × component across all months) --- */
-    const wardComp=(w,c)=>keys.reduce((a,k)=>a+issueMonthTotal(k,c,w),0);
-    const byWard=[["Units issued by ward and component — "+range],[],
-      ["Ward / Floor",...comps,"Total","Share %"],
-      ...store.wards.map(w=>{ const row=comps.map(c=>wardComp(w,c)); const t=row.reduce((a,b)=>a+b,0); return [w,...row,t,Math.round(t/grand*100)]; }),
-      ["Total",...comps.map(c=>store.wards.reduce((a,w)=>a+wardComp(w,c),0)),grand,100],
-    ];
-    addSheet("By Ward",byWard,[{wch:22},...comps.map(()=>({wch:12})),{wch:12},{wch:9}],[{s:{r:0,c:0},e:{r:0,c:comps.length+2}}]);
-
-    /* --- By Month (month × component) --- */
-    const byMonth=[["Units issued by month and component — "+range],[],
-      ["Month",...comps,"Received XM","Returned","Total issued"],
-      ...keys.map(k=>[keyLabel(k),...comps.map(c=>issueMonthTotal(k,c,"__all")),
-        sectionMonthTotal(k,"received"), sectionMonthTotal(k,"returned_ward")+sectionMonthTotal(k,"returned_ash"),
-        issueMonthTotal(k,"__all","__all")]),
-    ];
-    addSheet("By Month",byMonth,[{wch:12},...comps.map(()=>({wch:11})),{wch:12},{wch:11},{wch:13}],[{s:{r:0,c:0},e:{r:0,c:comps.length+3}}]);
-
-    /* --- per-month form sheets --- */
-    keys.forEach(key=>{
-      const M=store.data[key], nDays=daysInMonth(key);
-      const rows=[];
-      const hdr=(title)=>{ const r=[title]; for(let d=1;d<=nDays;d++) r.push(d); r.push("Total"); rows.push(r); };
-      const dataRow=(label,obj)=>{ const r=[label]; let t=0; for(let d=1;d<=nDays;d++){ const v=Number((obj||{})[d])||0; r.push(v||""); t+=v; } r.push(t); rows.push(r); };
-      rows.push(["Blood Bank Daily Statistics — "+keyLabel(key)]);
-      rows.push([]);
-      comps.forEach(c=>{ hdr("ISSUING "+c); store.wards.forEach(w=>dataRow(w,(M.issue[c]||{})[w])); rows.push([]); });
-      hdr("RECEIVED CROSS MATCHED"); store.wards.forEach(w=>dataRow(w,M.received[w])); rows.push([]);
-      [["returned_ward","RETURNED FROM WARD"],["returned_ash","RETURNED ARH→ASH"],["inventory","DAILY INVENTORY FROM ASH"]].forEach(([s,t])=>{
-        hdr(t); RET_COMPONENTS.forEach(c=>dataRow(c,M[s][c])); rows.push([]); });
-      // Transfusion Lab tests
-      if(M.labtests && Object.keys(M.labtests).length){
-        hdr("TRANSFUSION LAB — NAME OF TEST"); store.labTests.forEach(t=>dataRow(t,M.labtests[t])); rows.push([]);
-      }
-      // per-day staff signature row
-      const sig=["STAFF SIGNATURE"]; for(let d=1;d<=nDays;d++) sig.push((M.signatures||{})[d]||""); sig.push("");
-      rows.push(sig);
-      addSheet(keyLabel(key), rows, [{wch:26},...Array.from({length:nDays},()=>({wch:5})),{wch:7}]);
+    let ridNum=Math.max(0,...[...relsxml.matchAll(/Id="rId(\d+)"/g)].map(m=>+m[1]));
+    let sidNum=Math.max(0,...[...wbxml.matchAll(/sheetId="(\d+)"/g)].map(m=>+m[1]));
+    const sheetTags=[], relTags=[], ctTags=[];
+    keys.forEach((k,i)=>{
+      const file="worksheets/bbform"+(i+1)+".xml";
+      zip.file("xl/"+file, injectCells(BLUE, buildMap(k)));
+      ridNum++; sidNum++;
+      const rid="rId"+ridNum;
+      relTags.push('<Relationship Id="'+rid+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="'+file+'"/>');
+      sheetTags.push('<sheet name="'+xmlEsc(sheetName(k))+'" sheetId="'+sidNum+'" r:id="'+rid+'"/>');
+      ctTags.push('<Override PartName="/xl/'+file+'" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>');
     });
 
-    XLSX.writeFile(wb, `blood-bank-workbook-${today()}.xlsx`);
-    msg("Excel workbook exported (Summary, By Year/Ward/Month, plus monthly forms).","ok");
+    // remove the blueprint sheet (file, <sheet>, rel, content-type), add the month sheets
+    zip.remove(bpPath);
+    wbxml=wbxml.replace(sm[0],"").replace("</sheets>", sheetTags.join("")+"</sheets>");
+    relsxml=relsxml.replace(new RegExp('<Relationship\\b[^>]*Id="'+bpRid+'"[^>]*/>'),"")
+                   .replace(new RegExp('<Relationship\\b[^>]*Target="'+bpTarget.replace(/[.*+?^${}()|[\]\\]/g,"\\$&")+'"[^>]*/>'),"")
+                   .replace("</Relationships>", relTags.join("")+"</Relationships>");
+    ctxml=ctxml.replace(new RegExp('<Override PartName="/'+bpPath+'"[^>]*/>'),"")
+               .replace("</Types>", ctTags.join("")+"</Types>");
+    zip.file("xl/workbook.xml", wbxml);
+    zip.file("xl/_rels/workbook.xml.rels", relsxml);
+    zip.file("[Content_Types].xml", ctxml);
+    if(zip.file("xl/calcChain.xml")) zip.remove("xl/calcChain.xml");
+
+    const blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    download(blob, `blood-bank-monthly-forms-${today()}.xlsx`);
+    msg("Styled monthly forms exported ("+keys.length+" sheets, one per month).","ok");
   }
 
   // Excel import: parse a workbook shaped like the original form
@@ -972,7 +964,7 @@ table.rt td.tot,table.rt tfoot td{font-weight:700;background:#faf9f7}
     $("#e-btn-add-month").onclick=addMonthFromEntry;
     $("#btn-export-json").onclick=exportJSON;
     $("#btn-export-xlsx").onclick=()=>exportStyledXLSX().catch(e=>{console.error(e);msg("Styled export failed: "+e.message,"err");});
-    $("#btn-export-forms").onclick=exportXLSX;
+    $("#btn-export-forms").onclick=()=>exportXLSX().catch(e=>{console.error(e);msg("Monthly-forms export failed: "+e.message,"err");});
     $("#btn-report").onclick=buildReport;
     $("#imp-json").onchange=e=>e.target.files[0]&&importJSON(e.target.files[0]);
     $("#imp-xlsx").onchange=e=>e.target.files[0]&&importXLSX(e.target.files[0]);
