@@ -18,8 +18,16 @@
     returned_ward:{ label: "Returned from Ward", rows: "component", byComponent: false },
     returned_ash: { label: "Returned ARH→ASH", rows: "component", byComponent: false },
     inventory:    { label: "Daily inventory from ASH", rows: "component", byComponent: false },
+    labtests:     { label: "Transfusion Lab tests", rows: "labtest", byComponent: false },
+    signatures:   { label: "Daily staff signature", rows: "signature", byComponent: false },
   };
   const RET_COMPONENTS = ["PRBC","Platelets","FFP","CRYO"];
+  // Transfusion Lab monthly report — ordered test list (Form: Transfusion Lab)
+  const LAB_TESTS = ["NO,SPECIMENS REC'D (IP)","NO,SPECIMENS REC'D (OP)","ABO& RhD (IP)","ABO& RhD (OP)",
+    "Rh Weak D (OP)","Rh Weak D (IP)","DIRECT COOMBS (OP)","DIRECT COOMBS (IP)","Ab SCREENING RT/37 (IP)",
+    "Ab SCREENING RT/37 (OP)","PANEL (OP)","PANEL (IP)","TITRATION (IP)","TITRATION (OP)","Ag TYPING RT (OP)",
+    "Ag TYPING RT (IP)","Ag TYPING w/ AHG (IP)","Ag TYPING w/ AHG (OP)","X-MATCHING (IS)","X-MATCHING (AHG)",
+    "Trnsfusion reaction","ELUTION","Adsorption"];
 
   const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
   const compColor = { PRBC:"--s-prbc", FFP:"--s-ffp", CRYO:"--s-cryo", Platelets:"--s-plt" };
@@ -38,7 +46,16 @@
   }
   function seedStore() {
     const s = window.BB_SEED;
-    return JSON.parse(JSON.stringify({ wards: s.wards, components: s.components, data: s.data }));
+    return migrate(JSON.parse(JSON.stringify({ wards: s.wards, components: s.components, data: s.data })));
+  }
+  // ensure newer fields exist on older saved data (lab tests + per-day signatures)
+  function migrate(st) {
+    if (!st.labTests) st.labTests = LAB_TESTS.slice();
+    Object.values(st.data||{}).forEach(M=>{
+      if (!M.labtests) M.labtests = {};
+      if (!M.signatures) M.signatures = {};
+    });
+    return st;
   }
   function save() { localStorage.setItem(LS_KEY, JSON.stringify(store)); refreshFooter(); }
   function daysInMonth(key) { const [y,m]=key.split("-").map(Number); return new Date(y,m,0).getDate(); }
@@ -48,7 +65,7 @@
 
   /* ---------- aggregation ---------- */
   function emptyMonth() {
-    const m = { issue:{}, received:{}, returned_ward:{}, returned_ash:{}, inventory:{} };
+    const m = { issue:{}, received:{}, returned_ward:{}, returned_ash:{}, inventory:{}, labtests:{}, signatures:{} };
     store.components.forEach(c => { m.issue[c] = {}; });
     return m;
   }
@@ -282,8 +299,12 @@
     if (!key){ table.innerHTML="<caption class='muted'>No month selected — add one above to start entering data.</caption>"; return; }
     if (!store.data[key]) store.data[key]=emptyMonth();
     const M=store.data[key];
+    if(!M.labtests) M.labtests={}; if(!M.signatures) M.signatures={};
     const nDays=daysInMonth(key);
-    const rowLabels = meta.rows==="ward"? store.wards : RET_COMPONENTS;
+    // signatures: one free-text field per day (who recorded that day)
+    if (section==="signatures"){ renderSignatures(key,M,nDays); return; }
+    const rowLabels = meta.rows==="ward"? store.wards : meta.rows==="labtest"? store.labTests : RET_COMPONENTS;
+    const rowHead = meta.rows==="ward"?"Ward / Floor" : meta.rows==="labtest"?"Name of test" : "Component";
     // resolve the data block we edit
     let block, comp=null;
     if (section==="issue"){ comp=$("#e-component").value; M.issue[comp]=M.issue[comp]||{}; block=M.issue[comp]; }
@@ -292,7 +313,7 @@
     $("#e-hint").textContent = `${keyLabel(key)} · ${meta.label}${comp?" · "+comp:""} · enter daily counts, totals auto-calculate`;
 
     // header
-    let html="<thead><tr><th class='rowhead'>"+(meta.rows==="ward"?"Ward / Floor":"Component")+"</th>";
+    let html="<thead><tr><th class='rowhead'>"+rowHead+"</th>";
     for(let d=1;d<=nDays;d++) html+=`<th>${d}</th>`;
     html+="<th class='total'>Total</th></tr></thead><tbody>";
     rowLabels.forEach((r,ri)=>{
@@ -411,6 +432,29 @@
   }
   function colTotal(block,rows,d){ let t=0; rows.forEach(r=>t+=Number((block[r]||{})[d])||0); return t||0; }
   function grandTotal(block,rows){ let t=0; rows.forEach(r=>t+=sumDays(block[r])); return t||0; }
+
+  // per-day staff signature grid (text, one value per day)
+  function renderSignatures(key, M, nDays){
+    const table=$("#entry-table");
+    $("#e-wrap-comp").style.display="none";
+    $("#e-hint").classList.remove("err-hint");
+    $("#e-hint").textContent = `${keyLabel(key)} · Daily staff signature · type the name/initials of who recorded each day`;
+    let html="<thead><tr><th class='rowhead'>Day</th>";
+    for(let d=1;d<=nDays;d++) html+=`<th>${d}</th>`;
+    html+="</tr></thead><tbody><tr><td class='rowhead'>Signature</td>";
+    for(let d=1;d<=nDays;d++){
+      const v=M.signatures[d]||"";
+      html+=`<td><input class="sig" type="text" data-day="${d}" value="${(v+"").replace(/"/g,"&quot;")}" placeholder="—"></td>`;
+    }
+    html+="</tr></tbody>";
+    table.innerHTML=html;
+    table.oninput=(e)=>{
+      const inp=e.target; if(inp.tagName!=="INPUT") return;
+      const d=inp.dataset.day, val=inp.value.trim();
+      if(val) M.signatures[d]=val; else delete M.signatures[d];
+      save();
+    };
+  }
 
   /* ---------- manage ---------- */
   function renderManage() {
@@ -626,7 +670,14 @@
       hdr("RECEIVED CROSS MATCHED"); store.wards.forEach(w=>dataRow(w,M.received[w])); rows.push([]);
       [["returned_ward","RETURNED FROM WARD"],["returned_ash","RETURNED ARH→ASH"],["inventory","DAILY INVENTORY FROM ASH"]].forEach(([s,t])=>{
         hdr(t); RET_COMPONENTS.forEach(c=>dataRow(c,M[s][c])); rows.push([]); });
-      addSheet(keyLabel(key), rows, [{wch:22},...Array.from({length:nDays},()=>({wch:3.5})),{wch:7}]);
+      // Transfusion Lab tests
+      if(M.labtests && Object.keys(M.labtests).length){
+        hdr("TRANSFUSION LAB — NAME OF TEST"); store.labTests.forEach(t=>dataRow(t,M.labtests[t])); rows.push([]);
+      }
+      // per-day staff signature row
+      const sig=["STAFF SIGNATURE"]; for(let d=1;d<=nDays;d++) sig.push((M.signatures||{})[d]||""); sig.push("");
+      rows.push(sig);
+      addSheet(keyLabel(key), rows, [{wch:26},...Array.from({length:nDays},()=>({wch:5})),{wch:7}]);
     });
 
     XLSX.writeFile(wb, `blood-bank-workbook-${today()}.xlsx`);
@@ -641,9 +692,13 @@
       let added=0;
       wb.SheetNames.forEach(name=>{
         const res=parseSheet(wb.Sheets[name], name);
-        if(res){ store.data[res.key]=res.month; added++; }
+        if(res){ // merge section-by-section so a lab sheet doesn't wipe blood-bank data (and vice-versa)
+          const M=store.data[res.key]||emptyMonth();
+          Object.keys(res.patch).forEach(sec=>{ M[sec]=res.patch[sec]; });
+          store.data[res.key]=M; added++;
+        }
       });
-      save(); refreshAll();
+      migrate(store); save(); refreshAll();
       msg(added?`Imported ${added} month(s) from workbook.`:"No recognizable months found in that workbook.", added?"ok":"err");
     }catch(e){ console.error(e); msg("Could not read that Excel file.","err"); } };
     r.readAsArrayBuffer(file);
@@ -652,15 +707,43 @@
     ["january",1],["february",2],["jan",1],["feb",2],["mar",3],["apr",4],["may",5],["june",6],["july",7],
     ["jun",6],["jul",7],["aug",8],["sep",9],["oct",10],["nov",11],["december",12],["dec",12]];
   function detectMonthYear(title){
-    const u=title.toLowerCase(); let mo=null;
+    const u=String(title).toLowerCase(); let mo=null;
     for(const [k,v] of MONTH_LOOKUP){ if(u.includes(k)){ mo=v; break; } }
-    const ym=title.match(/(20\d\d)/); const yr=ym?+ym[1]:2024;
+    const ym=u.match(/(20\d\d)/); const yr=ym?+ym[1]:null;
     return mo?{mo,yr}:null;
   }
+  const labTestCanon=(s)=>{ const u=String(s).replace(/\s+/g," ").trim();
+    const found=store.labTests.find(t=>t.toLowerCase()===u.toLowerCase()); return found||u; };
   function parseSheet(ws, name){
-    const my=detectMonthYear(name); if(!my) return null;
-    const key=`${my.yr}-${String(my.mo).padStart(2,"0")}`;
     const aoa=XLSX.utils.sheet_to_json(ws,{header:1,raw:true});
+    // month/year: from the tab name, else from a "MONTH- <name> <year>" cell anywhere in the sheet
+    let my=detectMonthYear(name);
+    if(!my || !my.yr){
+      for(const row of aoa){ for(const cell of row){ if(typeof cell==="string" && /month/i.test(cell)){ const d=detectMonthYear(cell); if(d){ my=d; break; } } } if(my&&my.yr) break; }
+    }
+    if(!my) return null;
+    const key=`${my.yr||2024}-${String(my.mo).padStart(2,"0")}`;
+
+    // ---- Transfusion Lab form? (has a "NAME OF TEST" header) ----
+    const isLab=aoa.some(row=>row.some(c=>typeof c==="string" && /name of test/i.test(c)));
+    if(isLab){
+      const labtests={}; let daymap=null;
+      aoa.forEach(row=>{
+        const testCell=row.find((c,ci)=>ci>=1 && typeof c==="string" && /name of test/i.test(c));
+        if(testCell!=null){ daymap={}; row.forEach((h,ci)=>{ if(typeof h==="number"&&h>=1&&h<=31) daymap[ci]=h; }); return; }
+        if(!daymap) return;
+        // test name is the first non-numeric text cell in the row (skip the row-number col)
+        let label=null;
+        for(let ci=1;ci<row.length;ci++){ const v=row[ci]; if(typeof v==="string"&&v.trim()){ label=v.trim(); break; } }
+        if(!label) return;
+        const t=labTestCanon(label); const rec={};
+        for(const ci in daymap){ const v=row[ci]; if(typeof v==="number"&&v!==0) rec[daymap[ci]]=v; }
+        if(Object.keys(rec).length) labtests[t]=rec; else labtests[t]=labtests[t]||{};
+      });
+      return {key, patch:{labtests}};
+    }
+
+    // ---- Blood Bank daily statistics form ----
     const month=emptyMonth();
     const secOf=(b)=>{ const u=String(b||"").replace(/\s+/g," ").trim().toUpperCase();
       if(u.startsWith("ISSUING PRBC"))return["issue","PRBC"]; if(u.startsWith("ISSUING FFP"))return["issue","FFP"];
@@ -688,7 +771,7 @@
         for(const c in daymap){ const v=row[c]; if(typeof v==="number"&&v!==0) target[daymap[c]]=v; }
       }
     });
-    return {key,month};
+    return {key, patch:{issue:month.issue, received:month.received, returned_ward:month.returned_ward, returned_ash:month.returned_ash, inventory:month.inventory}};
   }
 
   /* ---------- analysis engine (used by report + Excel) ---------- */
@@ -773,6 +856,19 @@
         data:lyk.map(k=>issueMonthTotal(k,c,"__all"))}))},
       options:{plugins:{legend:RPT_LEGEND},scales:RPT_SCALES}});
 
+    // Transfusion Lab tests (only when there is any lab data)
+    const labTot=(store.labTests||[]).map(t=>({t,n:monthKeys().reduce((a,k)=>a+sumDays((store.data[k].labtests||{})[t]),0)}));
+    const labSum=labTot.reduce((a,x)=>a+x.n,0);
+    let labImg="", labTable="";
+    if(labSum>0){
+      labImg=await chartImg({type:"bar",
+        data:{labels:labTot.map(x=>x.t),datasets:[{data:labTot.map(x=>x.n),backgroundColor:"#2a78d6",borderRadius:3,borderColor:"#fff",borderWidth:1}]},
+        options:{indexAxis:"y",plugins:{legend:{display:false}},scales:{x:{...RPT_SCALES.x,grid:{color:"#e7e7e4"}},y:{ticks:{color:"#333",font:{size:10}},grid:{display:false}}}}},900,480);
+      labTable=`<table class="rt"><thead><tr><th>Test</th><th>Count</th></tr></thead><tbody>${
+        labTot.slice().sort((a,b)=>b.n-a.n).map(x=>`<tr><td class="l">${x.t}</td><td>${x.n.toLocaleString()}</td></tr>`).join("")
+      }</tbody></table>`;
+    }
+
     // tables
     const ym=yearlyMatrix();
     const fmt=n=>n.toLocaleString();
@@ -834,6 +930,7 @@ table.rt td.tot,table.rt tfoot td{font-weight:700;background:#faf9f7}
   <h2>Issued by ward / floor</h2><img class="chart" src="${wardImg}">
   <div class="two"><div><h2>Ward breakdown</h2>${wardTable}</div><div><h2>Activity summary</h2>${secTable}</div></div>
   <h2>Monthly trend — ${ly}</h2><img class="chart" src="${monthlyImg}">
+  ${labSum>0?`<h2>Transfusion Lab tests</h2><div class="two" style="grid-template-columns:1.1fr .9fr"><div><img class="chart" src="${labImg}"></div><div>${labTable}</div></div>`:""}
   <div class="foot"><span>Generated ${new Date().toLocaleString()}</span><span>Blood Bank Statistics app</span></div>
 </div></body></html>`;
 
@@ -862,6 +959,7 @@ table.rt td.tot,table.rt tfoot td{font-weight:700;background:#faf9f7}
   function boot(){
     store = load() || seedStore();
     if(!store.data) store.data={};
+    migrate(store);
     save();
     // theme sync for chart tokens
     document.getElementById("tabs").addEventListener("click",e=>{ if(e.target.dataset.view) switchView(e.target.dataset.view); });

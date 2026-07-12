@@ -57,6 +57,17 @@ Issuing PRBC / FFP / CRYO / Platelets (by ward), Received Cross-matched
 (by ward), Returned from Ward, Returned ARH→ASH, and Daily inventory from ASH
 (each by component).
 
+**Transfusion Lab tests** — a second monthly form (23 tests such as ABO&RhD,
+DIRECT COOMBS, X-MATCHING, PANEL, TITRATION, …) tracked per day. Choose
+"Transfusion Lab tests" in the Data Entry section dropdown. Importing a
+Transfusion Lab workbook merges its data into the matching month without
+touching the blood-bank data. Test counts appear in the printable report and
+the monthly Excel forms.
+
+**Daily staff signature** — one free-text signature per day (who recorded that
+day), entered via the "Daily staff signature" section and printed as a row on
+the monthly Excel forms.
+
 ## Notes
 
 - **Totals are always computed from the daily cells** (the source of truth).
