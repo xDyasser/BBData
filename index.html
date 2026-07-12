@@ -67,6 +67,30 @@
         <div class="canvas-wrap"><canvas id="chart-sections"></canvas></div>
       </figure>
     </div>
+
+    <div class="section-divider">🧪 Transfusion Lab tests</div>
+    <div class="filters card">
+      <label>Test
+        <select id="f-labtest"><option value="__all">All tests</option></select>
+      </label>
+      <label>Monthly view
+        <select id="f-labyear"></select>
+      </label>
+    </div>
+    <div class="grid2">
+      <figure class="card chart-card">
+        <figcaption id="cap-lab-year">Lab tests per year</figcaption>
+        <div class="canvas-wrap"><canvas id="chart-lab-year"></canvas></div>
+      </figure>
+      <figure class="card chart-card">
+        <figcaption id="cap-lab-month">Lab tests per month</figcaption>
+        <div class="canvas-wrap"><canvas id="chart-lab-month"></canvas></div>
+      </figure>
+    </div>
+    <figure class="card chart-card wide">
+      <figcaption id="cap-lab-test">Counts by test</figcaption>
+      <div class="canvas-wrap tall"><canvas id="chart-lab-test"></canvas></div>
+    </figure>
   </section>
 
   <!-- DATA ENTRY -->

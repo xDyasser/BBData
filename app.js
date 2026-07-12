@@ -141,6 +141,12 @@
     wardSel.innerHTML = '<option value="__all">All wards</option>';
     store.wards.forEach(w=>wardSel.add(new Option(w,w)));
     fillSelect($("#f-year"), years(), y=>y, y=>y, true);
+    const labSel=$("#f-labtest");
+    labSel.innerHTML='<option value="__all">All tests</option>';
+    (store.labTests||[]).forEach(t=>labSel.add(new Option(t,t)));
+    const ly=$("#f-labyear");
+    ly.innerHTML='<option value="__all">All months</option>';
+    years().forEach(y=>ly.add(new Option(y,y)));
     syncMonthList();
   }
   function syncMonthList() {
@@ -148,6 +154,14 @@
     const mk = monthKeys().filter(k=>k.startsWith(yr));
     fillSelect($("#f-month"), mk, k=>k, keyLabel, true);
   }
+
+  // Transfusion Lab tests aggregation
+  function labMonthTotal(key, test){
+    const L=(store.data[key]||{}).labtests||{};
+    if(test==="__all"){ let t=0; for(const nm in L) t+=sumDays(L[nm]); return t; }
+    return sumDays(L[test]);
+  }
+  function labTestTotal(test){ return monthKeys().reduce((a,k)=>a+labMonthTotal(k,test),0); }
 
   function renderDashboard() {
     if (!years().length) { $("#kpis").innerHTML="<p class='muted'>No data yet. Add a month or import a file from the Manage tab.</p>"; return; }
@@ -180,6 +194,36 @@
     renderComponentChart(scope, ward);
     renderWardChart(scope, comp);
     renderSectionsChart(scope);
+    renderLabCharts();
+  }
+
+  function renderLabCharts(){
+    const test=$("#f-labtest").value;
+    const testLabel=test==="__all"?"all tests":test;
+    const ys=years();
+    const blue="#2a78d6", aqua="#1baf7a";
+    // per year
+    $("#cap-lab-year").textContent=`Lab tests per year — ${testLabel}`;
+    mk("chart-lab-year",{ type:"bar",
+      data:{ labels:ys, datasets:[{ label:testLabel, data:ys.map(y=>keysInYear(y).reduce((a,k)=>a+labMonthTotal(k,test),0)),
+        backgroundColor:blue, borderRadius:4, borderSkipped:false }] },
+      options:{ responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:baseScales(false) } });
+    // per month (a chosen year, or full timeline)
+    const ly=$("#f-labyear").value;
+    const mkeys = ly==="__all"? monthKeys() : monthKeys().filter(k=>k.startsWith(ly));
+    const mlabels = ly==="__all"? mkeys.map(keyLabel) : mkeys.map(k=>MONTH_ABBR[+k.slice(5)]);
+    $("#cap-lab-month").textContent=`Lab tests per month — ${testLabel}${ly==="__all"?"":" · "+ly}`;
+    mk("chart-lab-month",{ type:"line",
+      data:{ labels:mlabels, datasets:[{ label:testLabel, data:mkeys.map(k=>labMonthTotal(k,test)),
+        borderColor:aqua, backgroundColor:aqua+"22", borderWidth:2, tension:.25, pointRadius:ly==="__all"?0:3, pointHoverRadius:5, fill:true }] },
+      options:{ responsive:true, maintainAspectRatio:false, interaction:{mode:"index",intersect:false},
+        plugins:{legend:{display:false}}, scales:baseScales(false) } });
+    // counts by test (all tests, whole record) — horizontal bar
+    const tests=store.labTests||[];
+    $("#cap-lab-test").textContent="Counts by test (all months)";
+    mk("chart-lab-test",{ type:"bar",
+      data:{ labels:tests, datasets:[{ data:tests.map(t=>labTestTotal(t)), backgroundColor:blue, borderColor:css("--surface-1"), borderWidth:1, borderRadius:3, borderSkipped:false }] },
+      options:{ indexAxis:"y", responsive:true, maintainAspectRatio:false, plugins:{legend:{display:false}}, scales:baseScales(false) } });
   }
 
   function scopeKeys(scope) {
@@ -970,6 +1014,7 @@ table.rt td.tot,table.rt tfoot td{font-weight:700;background:#faf9f7}
       $("#"+id).addEventListener("change",()=>{ if(id==="f-year") syncMonthList(); renderDashboard(); });
     });
     $("#f-month").addEventListener("change",renderDashboard);
+    ["f-labtest","f-labyear"].forEach(id=>$("#"+id).addEventListener("change",renderLabCharts));
     ["e-month","e-section","e-component"].forEach(id=>$("#"+id).addEventListener("change",renderEntry));
     $("#btn-add-month").onclick=addMonth;
     $("#e-btn-add-month").onclick=addMonthFromEntry;

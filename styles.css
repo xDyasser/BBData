@@ -69,6 +69,7 @@ select,input[type=number]{
 .kpi .k-sub{font-size:12px;color:var(--text-secondary);}
 .kpi .swatch{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:.3rem;vertical-align:middle;}
 
+.section-divider{margin:1.2rem 0 .2rem;font-size:1.05rem;font-weight:700;color:var(--text-primary);padding-bottom:.4rem;border-bottom:2px solid var(--accent);}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1.1rem;}
 .chart-card figcaption{font-weight:600;font-size:14px;margin:0 0 .7rem;}
 .chart-card.wide{grid-column:1 / -1;}
