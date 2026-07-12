@@ -748,13 +748,22 @@
       const found=store.wards.find(w=>w.toUpperCase()===U); return found|| map[U] || u; };
     const compCanon=(s)=>{ const U=String(s).replace(/\s+/g," ").trim().toUpperCase().replace(/\.$/,"");
       return {PRBC:"PRBC",PLATELETS:"Platelets",FFP:"FFP",CRYO:"CRYO"}[U]||String(s).trim(); };
-    let cur=null, daymap=null;
+    let cur=null, daymap=null, dayCols=null;
+    const signatures={};
     aoa.forEach(row=>{
       const b=row[1];
       const sk=secOf(b);
       if(sk){ cur=sk; daymap={};
         for(let c=2;c<row.length;c++){ const h=row[c]; if(typeof h==="number"&&h>=1&&h<=31) daymap[c]=h; }
+        if(!dayCols) dayCols=daymap;
         return; }
+      // "DONE BY:" row holds one staff signature per day
+      if(typeof b==="string" && /done\s*by/i.test(b)){
+        const dc=dayCols||{}; for(const c in dc){ const v=row[c];
+          if(typeof v==="string" && v.trim()) signatures[dc[c]]=v.trim();
+          else if(typeof v==="number") signatures[dc[c]]=String(v); }
+        return;
+      }
       if(cur && b!=null && String(b).trim()!==""){
         const [skind,comp]=cur;
         const label = (skind==="returned_ward"||skind==="returned_ash"||skind==="inventory")? compCanon(b) : wardCanon(b);
@@ -763,7 +772,9 @@
         for(const c in daymap){ const v=row[c]; if(typeof v==="number"&&v!==0) target[daymap[c]]=v; }
       }
     });
-    return {key, patch:{issue:month.issue, received:month.received, returned_ward:month.returned_ward, returned_ash:month.returned_ash, inventory:month.inventory}};
+    const patch={issue:month.issue, received:month.received, returned_ward:month.returned_ward, returned_ash:month.returned_ash, inventory:month.inventory};
+    if(Object.keys(signatures).length) patch.signatures=signatures;
+    return {key, patch};
   }
 
   /* ---------- analysis engine (used by report + Excel) ---------- */
