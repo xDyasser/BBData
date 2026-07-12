@@ -30,10 +30,11 @@ file with `python3 tools/build_single.py`.
     (yearly issuance, component share, by-ward, monthly trend) and summary
     tables. Use its **Print / Save as PDF** button for a shareable PDF.
   - **Export Excel (styled + charts)** — a professionally formatted workbook
-    with **Summary**, **By Year**, **By Ward**, and **By Month** sheets:
-    colored header bands, borders, frozen panes, live SUM formulas, and
-    **native Excel charts** (pie, clustered bar, stacked bar, line) that open
-    as real, editable charts inside Excel. See "How the styled Excel works".
+    with **Summary**, **By Year**, **By Ward**, **By Month**, and **Lab Tests**
+    sheets: colored header bands, borders, frozen panes, live SUM formulas, and
+    **native Excel charts** (pie, clustered/stacked bars, lines). The Lab Tests
+    sheet has per-year, per-month, and by-test charts. See "How the styled
+    Excel works".
   - **Export Excel (monthly forms)** — the per-month daily forms, one styled
     sheet per month mirroring Form-LAB-ARH-GEN-016 (colored section bands,
     borders, day columns 1–31, live Total formulas, the Transfusion Lab block,

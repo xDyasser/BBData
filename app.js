@@ -624,13 +624,30 @@
     }
     zip.file(path["By Month"], mo);
 
+    // --- Lab Tests sheet: per year, by test, per month ---
+    if(path["Lab Tests"]){
+      let lab=await zip.file(path["Lab Tests"]).async("string");
+      const labYear=(y)=>keysInYear(y).reduce((a,k)=>a+labMonthTotal(k,"__all"),0);
+      for(let i=0;i<meta.labYearsReserved;i++){ const r=meta.labY0+i;
+        if(i<ys.length){ lab=setTxt(lab,"A"+r, ys[i]); lab=setNum(lab,"B"+r, labYear(ys[i])); }
+        else { lab=setTxt(lab,"A"+r,null); lab=setNum(lab,"B"+r,null); } }
+      (store.labTests||[]).forEach((t,i)=>{ lab=setNum(lab,"B"+(meta.labT0+i), labTestTotal(t)); });
+      for(let i=0;i<meta.labMonthsReserved;i++){ const r=meta.labM0+i;
+        if(i<keys.length){ lab=setTxt(lab,"A"+r, keyLabel(keys[i])); lab=setNum(lab,"B"+r, labMonthTotal(keys[i],"__all")); }
+        else { lab=setTxt(lab,"A"+r,null); lab=setNum(lab,"B"+r,null); } }
+      zip.file(path["Lab Tests"], lab);
+    }
+
     // --- patch chart data ranges to the live year/month extents ---
     const yEnd=2+ys.length, mEnd=2+keys.length;
+    const labYEnd=meta.labY0-1+ys.length, labMEnd=meta.labM0-1+keys.length;
     const chartFiles=Object.keys(zip.files).filter(n=>/^xl\/charts\/chart\d+\.xml$/.test(n));
     for(const cf of chartFiles){
       let x=await zip.file(cf).async("string");
       x=x.replace(/('By Year'!\$[A-F]\$3:\$[A-F]\$)\d+/g,(m,p)=>p+yEnd);
       x=x.replace(/('By Month'!\$[A-H]\$3:\$[A-H]\$)\d+/g,(m,p)=>p+mEnd);
+      x=x.replace(new RegExp("('Lab Tests'!\\$[AB]\\$"+meta.labY0+":\\$[AB]\\$)\\d+","g"),(m,p)=>p+labYEnd);
+      x=x.replace(new RegExp("('Lab Tests'!\\$[AB]\\$"+meta.labM0+":\\$[AB]\\$)\\d+","g"),(m,p)=>p+labMEnd);
       zip.file(cf,x);
     }
     // drop calcChain so Excel recalculates all formulas on open
@@ -642,7 +659,7 @@
 
     const blob=await zip.generateAsync({type:"blob",mimeType:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
     download(blob, `blood-bank-analysis-${today()}.xlsx`);
-    msg("Styled Excel exported — Summary, By Year, By Ward, By Month with native charts.","ok");
+    msg("Styled Excel exported — Summary, By Year, By Ward, By Month, Lab Tests with native charts.","ok");
   }
 
   // Styled monthly-form export: clone the embedded styled FORM sheet per month and
@@ -906,7 +923,7 @@
     // Transfusion Lab tests (only when there is any lab data)
     const labTot=(store.labTests||[]).map(t=>({t,n:monthKeys().reduce((a,k)=>a+sumDays((store.data[k].labtests||{})[t]),0)}));
     const labSum=labTot.reduce((a,x)=>a+x.n,0);
-    let labImg="", labTable="";
+    let labImg="", labTable="", labYearImg="", labMonthImg="";
     if(labSum>0){
       labImg=await chartImg({type:"bar",
         data:{labels:labTot.map(x=>x.t),datasets:[{data:labTot.map(x=>x.n),backgroundColor:"#2a78d6",borderRadius:3,borderColor:"#fff",borderWidth:1}]},
@@ -914,6 +931,12 @@
       labTable=`<table class="rt"><thead><tr><th>Test</th><th>Count</th></tr></thead><tbody>${
         labTot.slice().sort((a,b)=>b.n-a.n).map(x=>`<tr><td class="l">${x.t}</td><td>${x.n.toLocaleString()}</td></tr>`).join("")
       }</tbody></table>`;
+      labYearImg=await chartImg({type:"bar",
+        data:{labels:ys,datasets:[{data:ys.map(y=>keysInYear(y).reduce((a,k)=>a+labMonthTotal(k,"__all"),0)),backgroundColor:"#2a78d6",borderRadius:3}]},
+        options:{plugins:{legend:{display:false}},scales:RPT_SCALES}},430,300);
+      labMonthImg=await chartImg({type:"line",
+        data:{labels:keys.map(keyLabel),datasets:[{data:keys.map(k=>labMonthTotal(k,"__all")),borderColor:"#1baf7a",backgroundColor:"#1baf7a22",borderWidth:2,tension:.25,pointRadius:0,fill:true}]},
+        options:{plugins:{legend:{display:false}},scales:RPT_SCALES}},900,300);
     }
 
     // tables
@@ -977,7 +1000,10 @@ table.rt td.tot,table.rt tfoot td{font-weight:700;background:#faf9f7}
   <h2>Issued by ward / floor</h2><img class="chart" src="${wardImg}">
   <div class="two"><div><h2>Ward breakdown</h2>${wardTable}</div><div><h2>Activity summary</h2>${secTable}</div></div>
   <h2>Monthly trend — ${ly}</h2><img class="chart" src="${monthlyImg}">
-  ${labSum>0?`<h2>Transfusion Lab tests</h2><div class="two" style="grid-template-columns:1.1fr .9fr"><div><img class="chart" src="${labImg}"></div><div>${labTable}</div></div>`:""}
+  ${labSum>0?`<h2>Transfusion Lab tests</h2>
+  <div class="two"><div><h2>Lab tests per year</h2><img class="chart" src="${labYearImg}"></div><div><h2>Test counts</h2>${labTable}</div></div>
+  <h2>Lab tests per month</h2><img class="chart" src="${labMonthImg}">
+  <h2>Counts by test</h2><img class="chart" src="${labImg}">`:""}
   <div class="foot"><span>Generated ${new Date().toLocaleString()}</span><span>Blood Bank Statistics app</span></div>
 </div></body></html>`;
 

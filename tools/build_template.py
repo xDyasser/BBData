@@ -32,6 +32,17 @@ def klabel(k): y,m=k.split("-"); return f"{MONTH_ABBR[int(m)]} {y}"
 
 YEARS_RESERVED = 12
 MONTHS_RESERVED = 120
+LAB_YEARS_RESERVED = 12
+LAB_MONTHS_RESERVED = 120
+LAB = ["NO,SPECIMENS REC'D (IP)","NO,SPECIMENS REC'D (OP)","ABO& RhD (IP)","ABO& RhD (OP)",
+    "Rh Weak D (OP)","Rh Weak D (IP)","DIRECT COOMBS (OP)","DIRECT COOMBS (IP)","Ab SCREENING RT/37 (IP)",
+    "Ab SCREENING RT/37 (OP)","PANEL (OP)","PANEL (IP)","TITRATION (IP)","TITRATION (OP)","Ag TYPING RT (OP)",
+    "Ag TYPING RT (IP)","Ag TYPING w/ AHG (IP)","Ag TYPING w/ AHG (OP)","X-MATCHING (IS)","X-MATCHING (AHG)",
+    "Trnsfusion reaction","ELUTION","Adsorption"]
+def _labblk(k): return DATA[k].get("labtests",{})
+def lab_test(t): return sum(sum(v for v in _labblk(k).get(t,{}).values()) for k in KEYS)
+def lab_month(k): return sum(sum(v for v in rec.values()) for rec in _labblk(k).values())
+def lab_year(y): return sum(lab_month(k) for k in KEYS if k.startswith(y))
 
 # ---- aggregation from seed ----
 def issue_month(k, comp=None, ward=None):
@@ -229,6 +240,55 @@ for i,c in enumerate(COMPS):
 finish_chart(line, xt="Month", yt="Units issued")
 wm.add_chart(line,"J2")
 
+# ================= Lab Tests =================
+wl = wb.create_sheet("Lab Tests")
+title(wl, "Transfusion Lab tests", 3)
+LAB_T0 = 20; LAB_M0 = 47
+# --- block 1: per year (rows 4..15, total 16) ---
+wl.cell(3,1,"Year"); wl.cell(3,2,"Lab tests"); style_header_cell(wl.cell(3,1)); style_header_cell(wl.cell(3,2))
+for i in range(LAB_YEARS_RESERVED):
+    r=4+i; y=YEARS[i] if i<len(YEARS) else None
+    wl.cell(r,1, y if y else None); data_cell(wl.cell(r,1), num=False, band=(i%2==1))
+    wl.cell(r,2, (lab_year(y) if y else None)); data_cell(wl.cell(r,2), band=(i%2==1))
+trow=4+LAB_YEARS_RESERVED
+wl.cell(trow,1,"Total"); data_cell(wl.cell(trow,1), num=False, total=True)
+wl.cell(trow,2, f"=SUM(B4:B{trow-1})"); data_cell(wl.cell(trow,2), total=True)
+bar_y=BarChart(); bar_y.type="col"; bar_y.title="Lab tests per year"; bar_y.height=7.5; bar_y.width=13
+bar_y.add_data(Reference(wl,min_col=2,min_row=4,max_row=3+max(1,len(YEARS))))
+bar_y.set_categories(Reference(wl,min_col=1,min_row=4,max_row=3+max(1,len(YEARS))))
+bar_y.series[0].graphicalProperties.solidFill="2A78D6"
+finish_chart(bar_y, xt="Year", yt="Tests"); bar_y.legend=None
+wl.add_chart(bar_y,"D3")
+# --- block 2: by test (rows 20..42, total 43) ---
+wl.cell(19,1,"Name of test"); wl.cell(19,2,"Count"); style_header_cell(wl.cell(19,1)); style_header_cell(wl.cell(19,2))
+for i,t in enumerate(LAB):
+    r=LAB_T0+i
+    wl.cell(r,1,t); data_cell(wl.cell(r,1), num=False, band=(i%2==1))
+    wl.cell(r,2, lab_test(t)); data_cell(wl.cell(r,2), band=(i%2==1))
+trow2=LAB_T0+len(LAB)
+wl.cell(trow2,1,"Total"); data_cell(wl.cell(trow2,1), num=False, total=True)
+wl.cell(trow2,2, f"=SUM(B{LAB_T0}:B{trow2-1})"); data_cell(wl.cell(trow2,2), total=True)
+bar_t=BarChart(); bar_t.type="bar"; bar_t.title="Counts by test"; bar_t.height=11; bar_t.width=13
+bar_t.add_data(Reference(wl,min_col=2,min_row=LAB_T0,max_row=LAB_T0+len(LAB)-1))
+bar_t.set_categories(Reference(wl,min_col=1,min_row=LAB_T0,max_row=LAB_T0+len(LAB)-1))
+bar_t.series[0].graphicalProperties.solidFill="1BAF7A"
+finish_chart(bar_t, xt="Count", yt=None); bar_t.legend=None
+wl.add_chart(bar_t,"D19")
+# --- block 3: per month (rows 47..166) ---
+wl.cell(46,1,"Month"); wl.cell(46,2,"Lab tests"); style_header_cell(wl.cell(46,1)); style_header_cell(wl.cell(46,2))
+for i in range(LAB_MONTHS_RESERVED):
+    r=LAB_M0+i; k=KEYS[i] if i<len(KEYS) else None
+    wl.cell(r,1, klabel(k) if k else None); data_cell(wl.cell(r,1), num=False, band=(i%2==1))
+    wl.cell(r,2, (lab_month(k) if k else None)); data_cell(wl.cell(r,2), band=(i%2==1))
+line_m=LineChart(); line_m.title="Lab tests per month"; line_m.height=7.5; line_m.width=20; line_m.smooth=False
+line_m.add_data(Reference(wl,min_col=2,min_row=LAB_M0,max_row=LAB_M0+max(1,len(KEYS))-1))
+line_m.set_categories(Reference(wl,min_col=1,min_row=LAB_M0,max_row=LAB_M0+max(1,len(KEYS))-1))
+line_m.series[0].graphicalProperties.line.solidFill="1BAF7A"; line_m.series[0].graphicalProperties.line.width=20000
+finish_chart(line_m, xt="Month", yt="Tests"); line_m.legend=None
+wl.add_chart(line_m,"D45")
+wl.column_dimensions["A"].width=26; wl.column_dimensions["B"].width=12
+wl.freeze_panes="A2"
+
 out_xlsx = os.path.join(ROOT, "tools/template.xlsx")
 wb.save(out_xlsx)
 raw = open(out_xlsx,"rb").read()
@@ -239,6 +299,8 @@ open(os.path.join(ROOT,"template-embed.js"),"w").write(
     "window.BB_TEMPLATE_B64 = \""+b64+"\";\n"
     "window.BB_TEMPLATE_META = "+json.dumps({
         "yearsReserved":YEARS_RESERVED,"monthsReserved":MONTHS_RESERVED,
-        "wards":len(WARDS),"comps":len(COMPS)})+";\n")
+        "wards":len(WARDS),"comps":len(COMPS),
+        "labYearsReserved":LAB_YEARS_RESERVED,"labMonthsReserved":LAB_MONTHS_RESERVED,
+        "labY0":4,"labT0":LAB_T0,"labTests":len(LAB),"labM0":LAB_M0})+";\n")
 print(f"template.xlsx {len(raw)} bytes → template-embed.js base64 {len(b64)} chars")
 print("years:",YEARS,"months:",len(KEYS),"grand issued:",section_month_all)
